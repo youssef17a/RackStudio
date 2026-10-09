@@ -21,6 +21,7 @@ export interface DevicePort {
   number: number;
   label: string;
   type: PortType;
+  row?: number; // 1-indexed row for multi-row patch panels or switches
   vlan?: string;
   speed?: string;
 }
@@ -32,13 +33,15 @@ export interface RackDevice {
   model: string;
   category: DeviceCategory;
   uStart: number; // Bottom U position (1 to rack.totalU)
-  uSize: number;  // Height in U (1, 2, 4)
+  uSize: number;  // Height in U (1, 2, 3, 4)
   ipAddress: string;
   managementVlan: string;
   serialNumber: string;
   powerWatts: number;
   status: 'nominal' | 'warning' | 'alert';
   notes: string;
+  customColor?: string;      // Hex color for device faceplate / chassis
+  portsPerRow?: number[];    // e.g. [24] for 1-row 24p, [24, 24] for 2-row 48p patch panel
   ports: DevicePort[];
 }
 
@@ -85,6 +88,8 @@ export interface HardwareTemplate {
   defaultPorts: number;
   portType: PortType;
   sfpUplinks?: number;
+  portsPerRow?: number[];
+  defaultColor?: string;
   powerWatts: number;
   defaultIp: string;
   description: string;

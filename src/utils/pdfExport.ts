@@ -22,6 +22,15 @@ const CATEGORY_FILL: Record<string, [number, number, number]> = {
   ups: [40, 35, 25]
 };
 
+function hexToRgbTuple(hex?: string): [number, number, number] | null {
+  if (!hex || !hex.startsWith('#') || hex.length !== 7) return null;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
+  return [r, g, b];
+}
+
 export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit): void {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -38,7 +47,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
   // =========================================================================
   // PAGE 1: ELEVACIÓN DE RACK Y DIAGRAMA VISUAL DE CABLEADO
   // =========================================================================
-  // Header Banner
   doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, pageWidth, 28, 'F');
 
@@ -53,7 +61,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
   doc.text(`Empresa: ${project.companyName}  |  Proyecto: ${project.projectName}`, 12, 17.5);
   doc.text(`Armario: ${rack.name} (${rack.locationCode})  |  Capacidad: ${rack.totalU}U  |  Fecha: ${dateStr}`, 12, 23);
 
-  // Summary Metrics Strip
   const usedU = rack.devices.reduce((acc, d) => acc + d.uSize, 0);
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
   const totalPorts = rack.devices.reduce((acc, d) => acc + d.ports.length, 0);
@@ -70,22 +77,18 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
   doc.text(`LATIGUILLOS ACTIVOS: ${rack.cables.length} (${totalPorts} puertos)`, 115, 40.5);
   doc.text(`CARGA ELÉCTRICA: ${totalWatts}W / ${rack.maxPowerWatts}W`, 160, 40.5);
 
-  // Left Column: Visual 19" Rack Elevation Diagram
   const rackX = 16;
   const rackY = 52;
   const rackW = 78;
   const rackH = 222;
   const uHeight = rackH / rack.totalU;
 
-  // Outer Chassis Frame
   doc.setFillColor(15, 23, 42);
   doc.rect(rackX - 4, rackY - 3, rackW + 8, rackH + 6, 'F');
 
-  // Inner Rack Cavity
   doc.setFillColor(30, 41, 59);
   doc.rect(rackX, rackY, rackW, rackH, 'F');
 
-  // Draw U grid lines & numbers
   doc.setLineWidth(0.1);
   for (let u = rack.totalU; u >= 1; u--) {
     const idxFromTop = rack.totalU - u;
@@ -94,7 +97,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     doc.setDrawColor(51, 65, 85);
     doc.line(rackX, yPos, rackX + rackW, yPos);
 
-    // U Label on left and right rails
     doc.setFont('courier', 'normal');
     doc.setFontSize(5.2);
     doc.setTextColor(148, 163, 184);
@@ -103,7 +105,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     doc.text(uStr, rackX + rackW + 0.6, yPos + uHeight * 0.72);
   }
 
-  // Draw mounted devices
   const deviceYCenterMap: Record<string, number> = {};
 
   for (const dev of rack.devices) {
@@ -113,17 +114,17 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     const h = dev.uSize * uHeight;
     deviceYCenterMap[dev.id] = yTop + h / 2;
 
-    const fill = CATEGORY_FILL[dev.category] || [30, 41, 59];
+    const customRgb = hexToRgbTuple(dev.customColor);
+    const fill = customRgb || CATEGORY_FILL[dev.category] || [30, 41, 59];
     doc.setFillColor(fill[0], fill[1], fill[2]);
     doc.setDrawColor(148, 163, 184);
     doc.setLineWidth(0.25);
     doc.rect(rackX + 0.5, yTop + 0.2, rackW - 1, h - 0.4, 'FD');
 
-    // Category tag + Device Name + IP
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(5.8);
-    const labelText = `[U${dev.uStart}] ${dev.name}`;
+    const labelText = `[U${dev.uStart}] ${dev.name} (${dev.ports.length}p)`;
     doc.text(labelText.substring(0, 32), rackX + 2, yTop + h / 2 + 0.5);
 
     doc.setFont('courier', 'normal');
@@ -132,7 +133,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     doc.text(dev.ipAddress.substring(0, 18), rackX + rackW - 22, yTop + h / 2 + 0.5);
   }
 
-  // Draw Cable Arcs on the right edge of the rack
   rack.cables.forEach((cab, idx) => {
     const y1 = deviceYCenterMap[cab.fromDeviceId];
     const y2 = deviceYCenterMap[cab.toDeviceId];
@@ -147,7 +147,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     }
   });
 
-  // Right Column: Inventory Table of Mounted Hardware
   const tableX = 108;
   let curY = 54;
 
@@ -163,7 +162,7 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
   doc.setTextColor(51, 65, 85);
   doc.text('POS U', tableX + 1.5, curY + 4);
   doc.text('EQUIPO / HOSTNAME', tableX + 14, curY + 4);
-  doc.text('TIPO', tableX + 49, curY + 4);
+  doc.text('PUERTOS', tableX + 51, curY + 4);
   doc.text('IP / GESTIÓN', tableX + 67, curY + 4);
 
   curY += 6;
@@ -184,9 +183,9 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     doc.setFont('helvetica', 'bold');
     doc.text(dev.name.substring(0, 21), tableX + 14, curY + 3.8);
 
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('courier', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text(CATEGORY_LABELS[dev.category] || dev.category, tableX + 49, curY + 3.8);
+    doc.text(`${dev.ports.length}p`, tableX + 51, curY + 3.8);
 
     doc.setFont('courier', 'normal');
     doc.text(dev.ipAddress.substring(0, 16), tableX + 67, curY + 3.8);
@@ -194,7 +193,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     curY += 5.8;
   }
 
-  // Project Details Box below table if space allows
   if (curY < 235) {
     curY += 6;
     doc.setFillColor(248, 250, 252);
@@ -212,14 +210,13 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     doc.text(`Dirección: ${project.siteAddress}`, tableX + 3, curY + 11.5);
     doc.text(`Responsable: ${project.technicalContact}`, tableX + 3, curY + 16.5);
     doc.text(`Servidor Host: Ubuntu Server 24.04 LTS (Persistencia JSON)`, tableX + 3, curY + 21.5);
-    doc.text(`Generado por: RackMaster DCIM — Administrador Amrani_LAN`, tableX + 3, curY + 26.5);
+    doc.text(`Plataforma: RackMaster DCIM — Documentación Técnica`, tableX + 3, curY + 26.5);
   }
 
-  // Footer Page 1
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
   doc.setTextColor(148, 163, 184);
-  doc.text('Página 1 de 2 — Diagrama de Elevación Física yAsignación de Unidades', 12, 289);
+  doc.text('Página 1 de 2 — Diagrama de Elevación Física y Asignación de Unidades', 12, 289);
   doc.text('RackMaster DCIM · Ubuntu Server Edition', 155, 289);
 
   // =========================================================================
@@ -227,7 +224,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
   // =========================================================================
   doc.addPage();
 
-  // Header Banner Page 2
   doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, pageWidth, 24, 'F');
 
@@ -274,7 +270,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     doc.setDrawColor(226, 232, 240);
     doc.line(12, y2 + 7, 198, y2 + 7);
 
-    // Color indicator square
     const rgb = COLOR_RGB[cab.color] || [59, 130, 246];
     doc.setFillColor(rgb[0], rgb[1], rgb[2]);
     doc.rect(13, y2 + 2, 1.5, 3, 'F');
@@ -299,7 +294,6 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     y2 += 7;
   });
 
-  // Technical Sign-Off Block
   if (y2 < 245) {
     y2 += 12;
     doc.setDrawColor(203, 213, 225);
@@ -309,12 +303,12 @@ export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
-    doc.text('ELABORADO POR (ADMINISTRADOR DE RED):', 15, y2 + 6);
+    doc.text('ELABORADO POR (ADMINISTRACIÓN DE RED):', 15, y2 + 6);
     doc.text('VALIDACIÓN Y AUDITORÍA DE PLANTA:', 113, y2 + 6);
 
     doc.setFont('courier', 'normal');
     doc.setFontSize(7);
-    doc.text('Usuario: administrador (Amrani_LAN)', 15, y2 + 18);
+    doc.text('Firma Técnica autorizada', 15, y2 + 18);
     doc.text(`Fecha de firma: ${dateStr}`, 113, y2 + 18);
   }
 
