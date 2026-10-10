@@ -93,6 +93,8 @@ export interface CustomPortBlockSpec {
   numberingOrder?: PortNumberingOrder;
 }
 
+export type ShelfBay = 'full' | 'left' | 'right';
+
 export interface RackDevice {
   id: string;
   templateId: string;
@@ -101,6 +103,7 @@ export interface RackDevice {
   category: DeviceCategory;
   uStart: number; // Bottom U position (1 to rack.totalU)
   uSize: number; // Height in U (1, 2, 3, 4)
+  shelfBay?: ShelfBay; // 'full' (19" full width) or 'left' / 'right' (2 devices on same U shelf)
   ipAddress: string;
   managementVlan: string;
   serialNumber: string;
@@ -130,8 +133,13 @@ export interface RackUnit {
   id: string;
   name: string;
   locationCode: string;
-  totalU: number; // e.g., 42, 24, 48
+  totalU: number; // Custom height from 4U to 60U (e.g., 6, 9, 12, 18, 24, 42, 48)
   maxPowerWatts: number;
+  widthMm?: number; // e.g. 600mm or 800mm
+  depthMm?: number; // e.g. 450mm, 600mm, 800mm, 1000mm
+  rackType?: 'floor' | 'wall' | 'open-frame' | 'custom';
+  frameColor?: string; // Custom hex color for rack chassis/rails
+  uNumberingDirection?: 'bottom-up' | 'top-down'; // U1 abajo o U1 arriba
   devices: RackDevice[];
   cables: PatchCable[];
 }
