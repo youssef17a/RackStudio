@@ -200,14 +200,14 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
       {/* =================================================================== */}
       {/* TOP LIVE CONNECTION HUD BANNER (Updates Instantly on Port/Cable Hover) */}
       {/* =================================================================== */}
-      <div className="sticky top-2 z-40 bg-[#111827]/95 backdrop-blur-md border border-slate-700 rounded-xl p-4 shadow-2xl">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="sticky top-2 z-40 bg-[#111827]/95 backdrop-blur-md border border-slate-700 rounded-xl p-3.5 shadow-2xl min-h-[68px] flex items-center">
+        <div className="w-full flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Left: Connection Inspector HUD */}
           <div className="flex-1 min-w-0">
             {activeConnection ? (
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
                 <div
-                  className="px-3 py-1.5 rounded-lg font-mono text-xs font-bold text-white flex items-center gap-2 shrink-0"
+                  className="px-2.5 py-1 rounded-lg font-mono text-xs font-bold text-white flex items-center gap-1.5 shrink-0"
                   style={{
                     backgroundColor: COLOR_HEX_MAP[activeConnection.cable.color]
                   }}
@@ -217,32 +217,32 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                 </div>
 
                 {/* Endpoint A */}
-                <div className="px-3 py-1.5 rounded-lg bg-slate-900 border border-blue-500/60 flex items-center gap-2">
+                <div className="px-2.5 py-1 rounded-lg bg-slate-900 border border-blue-500/60 flex items-center gap-1.5">
                   <span className="font-mono text-[11px] text-blue-400 font-bold">
                     [U{activeConnection.fromDevice.uStart}]
                   </span>
-                  <span className="font-mono text-xs font-bold text-white">
+                  <span className="font-mono text-xs font-bold text-white truncate max-w-[160px]">
                     {activeConnection.fromDevice.name}
                   </span>
                   <span className="text-slate-400">→</span>
                   <span className="px-1.5 py-0.5 rounded bg-blue-600 text-white font-mono text-xs font-bold">
-                    Puerto {activeConnection.fromPort.label} (#{activeConnection.fromPort.number})
+                    {activeConnection.fromPort.label} (#{activeConnection.fromPort.number})
                   </span>
                 </div>
 
                 <ArrowLeftRight className="w-4 h-4 text-emerald-400 shrink-0" />
 
                 {/* Endpoint B */}
-                <div className="px-3 py-1.5 rounded-lg bg-slate-900 border border-emerald-500/60 flex items-center gap-2">
+                <div className="px-2.5 py-1 rounded-lg bg-slate-900 border border-emerald-500/60 flex items-center gap-1.5">
                   <span className="font-mono text-[11px] text-emerald-400 font-bold">
                     [U{activeConnection.toDevice.uStart}]
                   </span>
-                  <span className="font-mono text-xs font-bold text-white">
+                  <span className="font-mono text-xs font-bold text-white truncate max-w-[160px]">
                     {activeConnection.toDevice.name}
                   </span>
                   <span className="text-slate-400">→</span>
                   <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-white font-mono text-xs font-bold">
-                    Puerto {activeConnection.toPort.label} (#{activeConnection.toPort.number})
+                    {activeConnection.toPort.label} (#{activeConnection.toPort.number})
                   </span>
                 </div>
 
@@ -372,7 +372,7 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                       d={dPath}
                       fill="none"
                       stroke="transparent"
-                      strokeWidth={14}
+                      strokeWidth={12}
                       className="pointer-events-auto cursor-pointer"
                       onMouseEnter={() => {
                         setHoveredCableId(cab.id);
@@ -438,9 +438,13 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                   if (slotInfo && slotInfo.type === 'start_top') {
                     const dev = slotInfo.device;
                     const portRows = getOrganizedDevicePortRows(dev);
+                    const isHighDensity =
+                      portRows.length >= 2 || dev.ports.length > 10;
                     const rowHeightPx = Math.max(
                       dev.uSize * 40,
-                      portRows.length * 30 + 16
+                      isHighDensity
+                        ? portRows.length * 26 + 44
+                        : portRows.length * 30 + 16
                     );
 
                     const isEndpointDevice =
@@ -471,7 +475,7 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                           minHeight: `${rowHeightPx}px`,
                           background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 65%, #0F172A 100%)`
                         }}
-                        className={`relative flex items-stretch transition-all ${
+                        className={`relative flex items-stretch transition-colors ${
                           isEndpointDevice
                             ? 'ring-2 ring-amber-400 z-10'
                             : ''
@@ -488,35 +492,41 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                         </div>
 
                         {/* Device Faceplate */}
-                        <div className="flex-1 px-3.5 py-2 flex flex-col md:flex-row md:items-center justify-between gap-3 min-w-0">
-                          <div className="min-w-0 shrink-0">
-                            <div className="flex items-center gap-2">
+                        <div
+                          className={`flex-1 px-3.5 py-2 flex ${
+                            isHighDensity
+                              ? 'flex-col justify-between gap-1.5'
+                              : 'flex-col md:flex-row md:items-center justify-between gap-3'
+                          } min-w-0`}
+                        >
+                          <div className="flex items-center justify-between gap-2 min-w-0 shrink-0">
+                            <div className="flex items-center gap-2 min-w-0">
                               {dev.status === 'nominal' ? (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               ) : (
                                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                               )}
-                              <span className="font-mono text-xs font-bold text-white truncate max-w-[200px]">
+                              <span className="font-mono text-xs font-bold text-white truncate">
                                 {dev.name}
                               </span>
-                              <span className="text-[11px] font-mono text-slate-300">
-                                {dev.ipAddress}
+                              <span className="text-[11px] font-mono text-slate-300 shrink-0">
+                                · {dev.ipAddress}
                               </span>
                             </div>
-                            <div className="text-[11px] text-slate-300/80 pl-5 truncate">
-                              {dev.model} · {CATEGORY_LABELS[dev.category]} ({dev.ports.length} puertos)
-                            </div>
+                            <span className="text-[11px] text-slate-300/80 font-mono truncate shrink-0">
+                              {dev.model} · {CATEGORY_LABELS[dev.category]} ({dev.ports.length}p)
+                            </span>
                           </div>
 
                           {/* Multi-Row Organized Ports */}
-                          <div className="flex flex-col gap-1.5 items-end justify-center z-30">
+                          <div className="flex flex-col gap-1.5 items-end justify-center z-30 w-full">
                             {portRows.map((rowPorts, rIndex) => (
                               <div
                                 key={`consulta-row-${dev.id}-${rIndex}`}
-                                className="flex flex-wrap items-center gap-1 justify-end"
+                                className="flex items-center gap-1 justify-end flex-nowrap max-w-full"
                               >
                                 {portRows.length > 1 && (
-                                  <span className="text-[9px] font-mono text-slate-400 mr-1">
+                                  <span className="text-[9px] font-mono text-slate-400 mr-1 shrink-0">
                                     F{rIndex + 1}:
                                   </span>
                                 )}
@@ -570,11 +580,11 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                                             }
                                           : undefined
                                       }
-                                      className={`h-5 min-w-[22px] px-1 rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-transform cursor-pointer tabular-nums ${
+                                      className={`h-5 w-[22px] rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 ${
                                         isPortActive
-                                          ? 'scale-125 ring-2 ring-amber-300 z-40 shadow-lg text-white'
+                                          ? 'ring-2 ring-amber-300 z-40 shadow-lg text-white brightness-125'
                                           : connCable
-                                          ? 'text-white hover:scale-115'
+                                          ? 'text-white hover:brightness-125'
                                           : port.type === 'sfp'
                                           ? 'bg-slate-950 text-cyan-400/70 border-cyan-900/60 hover:border-cyan-400'
                                           : 'bg-slate-900/80 text-slate-500 border-slate-800 hover:text-slate-300'

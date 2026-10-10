@@ -1000,63 +1000,71 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Live Hover Connection Tooltip HUD */}
-        {hoverInfo && !pendingPort && (
-          <div className="p-2.5 px-3.5 rounded-xl bg-slate-900/95 border border-amber-500/80 text-xs flex items-center justify-between gap-3 shadow-lg">
-            <div className="flex items-center gap-2.5 min-w-0">
-              {hoverInfo.colorHex && (
-                <span
-                  className="w-3 h-3 rounded-full shrink-0"
-                  style={{ backgroundColor: hoverInfo.colorHex }}
-                />
-              )}
-              <span className="font-mono font-bold text-white truncate">
-                {hoverInfo.text}
+        {/* Fixed-Height Status & Live Hover HUD Strip (Never shifts rack vertically on hover) */}
+        <div className="min-h-[44px] flex items-center">
+          {pendingPort ? (
+            <div className="w-full p-2.5 px-3.5 rounded-xl bg-blue-950/95 border border-blue-500/80 flex items-center justify-between gap-3">
+              <div className="text-xs text-blue-100 flex items-center gap-2 min-w-0">
+                <Cable className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="truncate">
+                  Origen:{' '}
+                  <strong className="font-mono text-white">
+                    {pendingPort.deviceName} [{pendingPort.portLabel}]
+                  </strong>{' '}
+                  — Pulse sobre el puerto destino para tirar el cable.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingPort(null)}
+                className="px-2.5 py-1 rounded bg-blue-900 hover:bg-blue-800 text-xs text-blue-100 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Cancelar</span>
+              </button>
+            </div>
+          ) : hoverInfo ? (
+            <div className="w-full p-2.5 px-3.5 rounded-xl bg-slate-900/95 border border-amber-500/80 text-xs flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                {hoverInfo.colorHex && (
+                  <span
+                    className="w-3 h-3 rounded-full shrink-0"
+                    style={{ backgroundColor: hoverInfo.colorHex }}
+                  />
+                )}
+                <span className="font-mono font-bold text-white truncate">
+                  {hoverInfo.text}
+                </span>
+              </div>
+              <span className="font-mono text-[11px] text-amber-300 shrink-0">
+                {hoverInfo.subtext}
               </span>
             </div>
-            <span className="font-mono text-[11px] text-amber-300 shrink-0">
-              {hoverInfo.subtext}
-            </span>
-          </div>
-        )}
-
-        {/* Active Patching Assistant Banner */}
-        {pendingPort && (
-          <div className="p-3 rounded-xl bg-blue-950/90 border border-blue-500/80 flex items-center justify-between gap-3">
-            <div className="text-xs text-blue-100 flex items-center gap-2">
-              <Cable className="w-4 h-4 text-blue-400 shrink-0" />
-              <span>
-                Origen seleccionado:{' '}
-                <strong className="font-mono text-white">
-                  {pendingPort.deviceName} [{pendingPort.portLabel}]
-                </strong>
-                . Pulse ahora sobre el puerto de destino en otro equipo o Patch Panel.
+          ) : feedbackBanner ? (
+            <div className="w-full p-2.5 px-3.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 flex items-center justify-between">
+              <span className="truncate">{feedbackBanner}</span>
+              <button
+                type="button"
+                onClick={() => setFeedbackBanner(null)}
+                className="text-slate-400 hover:text-white shrink-0 ml-2"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="w-full p-2.5 px-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs text-slate-400 flex items-center justify-between">
+              <span className="flex items-center gap-2 truncate">
+                <Cable className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span>
+                  Pase el cursor sobre cualquier puerto o latiguillo para consultar su conexión, o haga clic para parchear.
+                </span>
+              </span>
+              <span className="font-mono text-[11px] text-slate-500 shrink-0">
+                EIA-310-D
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setPendingPort(null)}
-              className="px-2.5 py-1 rounded bg-blue-900 hover:bg-blue-800 text-xs text-blue-100 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Cancelar</span>
-            </button>
-          </div>
-        )}
-
-        {/* Operation Feedback Banner */}
-        {feedbackBanner && !pendingPort && !hoverInfo && (
-          <div className="p-2.5 px-3.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 flex items-center justify-between">
-            <span>{feedbackBanner}</span>
-            <button
-              type="button"
-              onClick={() => setFeedbackBanner(null)}
-              className="text-slate-400 hover:text-white"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* 19-Inch Physical Rack Chassis Container */}
         <div
@@ -1104,7 +1112,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       d={dPath}
                       fill="none"
                       stroke="transparent"
-                      strokeWidth={12}
+                      strokeWidth={10}
                       className="pointer-events-auto cursor-pointer"
                       onMouseEnter={() => {
                         setHoveredCableId(cab.id);
@@ -1172,9 +1180,13 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   const dev = slotInfo.device;
                   const isSelected = selectedDeviceId === dev.id;
                   const portRows = getOrganizedDevicePortRows(dev);
+                  const isHighDensity =
+                    portRows.length >= 2 || dev.ports.length > 10;
                   const rowHeightPx = Math.max(
                     dev.uSize * 38,
-                    portRows.length * 28 + 16
+                    isHighDensity
+                      ? portRows.length * 24 + 42
+                      : portRows.length * 28 + 16
                   );
 
                   const defaultCategoryColor =
@@ -1213,7 +1225,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         minHeight: `${rowHeightPx}px`,
                         background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 65%, #0F172A 100%)`
                       }}
-                      className={`relative flex items-stretch transition-all cursor-pointer ${
+                      className={`relative flex items-stretch transition-colors cursor-pointer ${
                         isSelected
                           ? 'ring-2 ring-blue-400 z-10'
                           : 'hover:brightness-110'
@@ -1230,33 +1242,37 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       </div>
 
                       {/* Device Chassis Faceplate */}
-                      <div className="flex-1 px-3 py-1.5 flex flex-col md:flex-row md:items-center justify-between gap-2 min-w-0">
-                        <div className="flex items-center gap-2 min-w-0 shrink-0">
-                          <GripVertical className="w-3.5 h-3.5 text-slate-400 cursor-grab shrink-0" />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold text-white truncate max-w-[165px]">
-                                {dev.name}
-                              </span>
-                              <span className="text-[10px] font-mono text-slate-300 hidden sm:inline">
-                                {dev.ipAddress}
-                              </span>
-                            </div>
-                            <div className="text-[10px] text-slate-300/90 truncate">
-                              {dev.model} · {CATEGORY_LABELS[dev.category]} ({dev.uSize}U · {dev.ports.length}p)
-                            </div>
+                      <div
+                        className={`flex-1 px-2.5 py-1.5 flex ${
+                          isHighDensity
+                            ? 'flex-col justify-between gap-1.5'
+                            : 'flex-col md:flex-row md:items-center justify-between gap-2'
+                        } min-w-0`}
+                      >
+                        <div className="flex items-center justify-between gap-2 min-w-0 shrink-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <GripVertical className="w-3.5 h-3.5 text-slate-400 cursor-grab shrink-0" />
+                            <span className="font-mono text-xs font-bold text-white truncate">
+                              {dev.name}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-300 hidden sm:inline shrink-0">
+                              · {dev.ipAddress}
+                            </span>
                           </div>
+                          <span className="text-[10px] text-slate-300/90 font-mono truncate shrink-0">
+                            {dev.model} ({dev.uSize}U · {dev.ports.length}p)
+                          </span>
                         </div>
 
-                        {/* Right Physical Port Matrix Organized by Rows & Numbering Order */}
-                        <div className="flex flex-col gap-1 items-end justify-center z-30">
+                        {/* Physical Port Matrix Organized by Rows & Numbering Order */}
+                        <div className="flex flex-col gap-1 items-end justify-center z-30 w-full">
                           {portRows.map((rowPorts, rIndex) => (
                             <div
                               key={`row-${dev.id}-${rIndex}`}
-                              className="flex flex-wrap items-center gap-1 justify-end"
+                              className="flex items-center gap-1 justify-end flex-nowrap max-w-full"
                             >
                               {portRows.length > 1 && (
-                                <span className="text-[9px] font-mono text-slate-400 mr-1">
+                                <span className="text-[9px] font-mono text-slate-400 mr-0.5 shrink-0">
                                   F{rIndex + 1}:
                                 </span>
                               )}
@@ -1319,16 +1335,16 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                           }
                                         : undefined
                                     }
-                                    className={`h-5 min-w-[20px] px-1 rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-transform cursor-pointer tabular-nums ${
+                                    className={`h-5 w-[22px] rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 ${
                                       isPending || isHoveredCablePort
-                                        ? 'bg-amber-500 text-slate-950 border-white scale-125 ring-2 ring-amber-300 z-40'
+                                        ? 'bg-amber-500 text-slate-950 border-white ring-2 ring-amber-300 z-40'
                                         : connCable
-                                        ? 'text-white shadow-sm hover:scale-110'
+                                        ? 'text-white shadow-sm hover:brightness-125'
                                         : port.type === 'sfp'
-                                        ? 'bg-slate-950 text-cyan-300 border-cyan-800/80 hover:border-cyan-400 hover:scale-110'
+                                        ? 'bg-slate-950 text-cyan-300 border-cyan-800/80 hover:border-cyan-300 hover:bg-cyan-950/60'
                                         : port.type === 'keystone'
-                                        ? 'bg-slate-950 text-slate-300 border-slate-700 hover:border-blue-400 hover:scale-110'
-                                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-blue-400 hover:scale-110'
+                                        ? 'bg-slate-950 text-slate-300 border-slate-700 hover:border-blue-400 hover:bg-slate-800'
+                                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-blue-400 hover:bg-slate-800'
                                     }`}
                                   >
                                     {port.number.toString().padStart(2, '0')}

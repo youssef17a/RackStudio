@@ -249,11 +249,11 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     id: 'tpl-sw-c9300-48',
     name: 'Switch Core L3 Catalyst 48P (+4 SFP+)',
     brand: 'Cisco',
-    model: 'Catalyst 9300-48P (2 Filas x 24)',
+    model: 'Catalyst 9300-48P (4 Filas x 12)',
     category: 'switch',
     uSize: 1,
     defaultPorts: 48,
-    portsPerRow: [24, 24],
+    portsPerRow: [12, 12, 12, 12],
     defaultNumberingOrder: 'vertical-odd-even',
     portType: 'rj45',
     sfpUplinks: 4,
@@ -270,14 +270,14 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'switch',
     uSize: 1,
     defaultPorts: 48,
-    portsPerRow: [24, 24],
+    portsPerRow: [12, 12, 12, 12],
     defaultNumberingOrder: 'vertical-odd-even',
     portType: 'rj45',
     sfpUplinks: 4,
     defaultColor: '#115E59',
     powerWatts: 600,
     defaultIp: '10.10.1.49/24',
-    description: 'Switch 48 puertos GbE PoE+/PoE++ en 2 filas de 24 + 4 uplinks 10G SFP+'
+    description: 'Switch 48 puertos GbE PoE+/PoE++ en bloques de 12 + 4 uplinks 10G SFP+'
   },
 
   // =========================================================================
@@ -835,41 +835,55 @@ export const CATEGORY_LABELS: Record<DeviceCategory, string> = {
  *   - `vertical-even-odd`: Row 1 (top) = 2, 4, 6.. (even), Row 2 (bottom) = 1, 3, 5.. (odd)
  */
 export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
+  const MAX_PORTS_PER_VISUAL_ROW = 12;
   const order: PortNumberingOrder = dev.portNumberingOrder || 'sequential';
   const sortedPorts = [...dev.ports].sort((a, b) => a.number - b.number);
 
-  // Separate regular ports and SFP uplinks if SFP uplinks exist on switches/routers
-  const regularPorts = sortedPorts.filter((p) => p.type !== 'sfp' || dev.category === 'patchpanel');
+  const regularPorts = sortedPorts.filter(
+    (p) => p.type !== 'sfp' || dev.category === 'patchpanel'
+  );
   const sfpUplinks =
-    dev.category === 'patchpanel' ? [] : sortedPorts.filter((p) => p.type === 'sfp');
+    dev.category === 'patchpanel'
+      ? []
+      : sortedPorts.filter((p) => p.type === 'sfp');
 
-  // Determine how many rows regular ports should span
-  let rowSizes: number[] = [];
+  // Determine initial row sizes
+  let rawRowSizes: number[] = [];
   if (dev.portsPerRow && dev.portsPerRow.length > 0) {
     const sum = dev.portsPerRow.reduce((a, b) => a + b, 0);
     if (sum === regularPorts.length) {
-      rowSizes = [...dev.portsPerRow];
+      rawRowSizes = [...dev.portsPerRow];
     }
   }
 
-  if (rowSizes.length === 0) {
-    // Auto-wrap large port counts (> 16 ports) into balanced rows of max 16 or 24 ports
-    if (regularPorts.length <= 16) {
-      rowSizes = [regularPorts.length];
-    } else if (regularPorts.length <= 32) {
+  if (rawRowSizes.length === 0) {
+    if (regularPorts.length <= MAX_PORTS_PER_VISUAL_ROW) {
+      rawRowSizes = [regularPorts.length];
+    } else if (regularPorts.length <= 24) {
       const top = Math.ceil(regularPorts.length / 2);
-      rowSizes = [top, regularPorts.length - top];
-    } else if (regularPorts.length <= 48) {
-      const top = Math.ceil(regularPorts.length / 2);
-      rowSizes = [top, regularPorts.length - top];
+      rawRowSizes = [top, regularPorts.length - top];
     } else {
-      // > 48 ports: split in chunks of 24
       let rem = regularPorts.length;
       while (rem > 0) {
-        const take = Math.min(24, rem);
+        const take = Math.min(MAX_PORTS_PER_VISUAL_ROW, rem);
+        rawRowSizes.push(take);
+        rem -= take;
+      }
+    }
+  }
+
+  // Ensure no single row exceeds MAX_PORTS_PER_VISUAL_ROW (12 ports max per row)
+  const rowSizes: number[] = [];
+  for (const size of rawRowSizes) {
+    if (size > MAX_PORTS_PER_VISUAL_ROW) {
+      let rem = size;
+      while (rem > 0) {
+        const take = Math.min(MAX_PORTS_PER_VISUAL_ROW, rem);
         rowSizes.push(take);
         rem -= take;
       }
+    } else if (size > 0) {
+      rowSizes.push(size);
     }
   }
 
@@ -878,21 +892,49 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
   if (rowSizes.length <= 1) {
     rows = [regularPorts];
   } else if (order === 'vertical-odd-even' && rowSizes.length >= 2) {
-    // Interleaved vertical pairs: Top row gets 1, 3, 5..., Second row gets 2, 4, 6...
-    const numRows = rowSizes.length;
-    rows = Array.from({ length: numRows }, () => []);
-    regularPorts.forEach((port, idx) => {
-      const targetRow = idx % numRows;
-      rows[targetRow].push(port);
-    });
+    // Pairwise vertical: within each pair of rows (Row 1 & Row 2, Row 3 & Row 4), odd numbers on top row, even numbers on bottom row
+    rows = Array.from({ length: rowSizes.length }, () => []);
+    let portCursor = 0;
+    for (let r = 0; r < rowSizes.length; r += 2) {
+      if (r + 1 < rowSizes.length) {
+        const pairTotal = rowSizes[r] + rowSizes[r + 1];
+        const pairSlice = regularPorts.slice(portCursor, portCursor + pairTotal);
+        portCursor += pairTotal;
+        pairSlice.forEach((p, idx) => {
+          if (idx % 2 === 0) {
+            rows[r].push(p);
+          } else {
+            rows[r + 1].push(p);
+          }
+        });
+      } else {
+        const slice = regularPorts.slice(portCursor, portCursor + rowSizes[r]);
+        portCursor += rowSizes[r];
+        rows[r].push(...slice);
+      }
+    }
   } else if (order === 'vertical-even-odd' && rowSizes.length >= 2) {
-    // Top row gets 2, 4, 6..., Bottom row gets 1, 3, 5...
-    const numRows = rowSizes.length;
-    rows = Array.from({ length: numRows }, () => []);
-    regularPorts.forEach((port, idx) => {
-      const targetRow = (numRows - 1) - (idx % numRows);
-      rows[targetRow].push(port);
-    });
+    // Pairwise vertical inverted: even numbers on top row, odd numbers on bottom row
+    rows = Array.from({ length: rowSizes.length }, () => []);
+    let portCursor = 0;
+    for (let r = 0; r < rowSizes.length; r += 2) {
+      if (r + 1 < rowSizes.length) {
+        const pairTotal = rowSizes[r] + rowSizes[r + 1];
+        const pairSlice = regularPorts.slice(portCursor, portCursor + pairTotal);
+        portCursor += pairTotal;
+        pairSlice.forEach((p, idx) => {
+          if (idx % 2 === 1) {
+            rows[r].push(p);
+          } else {
+            rows[r + 1].push(p);
+          }
+        });
+      } else {
+        const slice = regularPorts.slice(portCursor, portCursor + rowSizes[r]);
+        portCursor += rowSizes[r];
+        rows[r].push(...slice);
+      }
+    }
   } else {
     // Sequential horizontal: Row 1 has 1..N, Row 2 has N+1..M
     let cursor = 0;
@@ -905,20 +947,17 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
     }
   }
 
-  // Append SFP+ uplinks to the last row (or split across 2 rows if >= 4 SFP)
+  // Append or create dedicated row for SFP+ uplinks without exceeding MAX_PORTS_PER_VISUAL_ROW
   if (sfpUplinks.length > 0) {
-    if (rows.length >= 2 && sfpUplinks.length >= 2) {
-      sfpUplinks.forEach((sfp, idx) => {
-        const targetRow =
-          order === 'vertical-odd-even'
-            ? idx % rows.length
-            : Math.min(rows.length - 1, Math.floor((idx / sfpUplinks.length) * rows.length));
-        rows[targetRow].push(sfp);
-      });
-    } else if (rows.length > 0) {
-      rows[rows.length - 1].push(...sfpUplinks);
-    } else {
-      rows.push(sfpUplinks);
+    let remainingSfp = [...sfpUplinks];
+    for (let r = 0; r < rows.length && remainingSfp.length > 0; r++) {
+      const spaceInRow = MAX_PORTS_PER_VISUAL_ROW - rows[r].length;
+      if (spaceInRow > 0) {
+        rows[r].push(...remainingSfp.splice(0, spaceInRow));
+      }
+    }
+    while (remainingSfp.length > 0) {
+      rows.push(remainingSfp.splice(0, MAX_PORTS_PER_VISUAL_ROW));
     }
   }
 
