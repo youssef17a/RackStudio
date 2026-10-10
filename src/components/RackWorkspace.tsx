@@ -728,7 +728,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 p-6 max-w-[1600px] mx-auto items-start">
+    <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 p-4 lg:p-6 max-w-[1800px] mx-auto items-start">
       {/* =================================================================== */}
       {/* LEFT PANEL (3 COLS): EXPANDED CATALOG + CUSTOM DEVICE + PATCHING    */}
       {/* =================================================================== */}
@@ -942,7 +942,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       </div>
 
       {/* =================================================================== */}
-      {/* CENTER PANEL (6 COLS): INTERACTIVE 42U 19" RACK + SVG PATCH CABLES  */}
+      {/* CENTER PANEL (6 COLS WIDE): INTERACTIVE 42U 19" RACK + PATCH CABLES */}
       {/* =================================================================== */}
       <div className="xl:col-span-6 space-y-4">
         {/* Rack Telemetry & Quick Action Strip */}
@@ -1167,7 +1167,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           )}
 
           {/* Rack U Slots Loop (Top U down to U1) */}
-          <div className="divide-y divide-slate-800/70 border border-slate-800 rounded bg-[#090D16]">
+          <div className="divide-y divide-slate-800/70 border border-slate-800 rounded bg-[#090D16] overflow-hidden">
             {Array.from({ length: rack.totalU }, (_, i) => rack.totalU - i).map(
               (uNumber) => {
                 const slotInfo = uSlotMap[uNumber];
@@ -1180,14 +1180,16 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   const dev = slotInfo.device;
                   const isSelected = selectedDeviceId === dev.id;
                   const portRows = getOrganizedDevicePortRows(dev);
-                  const isHighDensity =
-                    portRows.length >= 2 || dev.ports.length > 10;
                   const rowHeightPx = Math.max(
                     dev.uSize * 38,
-                    isHighDensity
-                      ? portRows.length * 24 + 42
-                      : portRows.length * 28 + 16
+                    portRows.length * 24 + 14
                   );
+
+                  // Extract concise Brand name (e.g., "Fortinet", "Cisco", "Movistar", "Ubiquiti")
+                  const shortBrand = dev.model
+                    .split('/')[0]
+                    .trim()
+                    .split(' ')[0];
 
                   const defaultCategoryColor =
                     dev.category === 'firewall'
@@ -1223,16 +1225,16 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       }}
                       style={{
                         minHeight: `${rowHeightPx}px`,
-                        background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 65%, #0F172A 100%)`
+                        background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 55%, #0F172A 100%)`
                       }}
                       className={`relative flex items-stretch transition-colors cursor-pointer ${
                         isSelected
-                          ? 'ring-2 ring-blue-400 z-10'
+                          ? 'ring-2 ring-inset ring-blue-400 z-10'
                           : 'hover:brightness-110'
                       }`}
                     >
                       {/* Left Rack Rail */}
-                      <div className="w-10 shrink-0 bg-slate-950/90 border-r border-slate-800 flex flex-col items-center justify-center font-mono text-[10px] text-slate-400 tabular-nums">
+                      <div className="w-9 shrink-0 bg-slate-950/90 border-r border-slate-800 flex flex-col items-center justify-center font-mono text-[10px] text-slate-400 tabular-nums">
                         <span>{uNumber.toString().padStart(2, '0')}</span>
                         {dev.uSize > 1 && (
                           <span className="text-[9px] text-slate-600">
@@ -1241,35 +1243,30 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         )}
                       </div>
 
-                      {/* Device Chassis Faceplate */}
-                      <div
-                        className={`flex-1 px-2.5 py-1.5 flex ${
-                          isHighDensity
-                            ? 'flex-col justify-between gap-1.5'
-                            : 'flex-col md:flex-row md:items-center justify-between gap-2'
-                        } min-w-0`}
-                      >
-                        <div className="flex items-center justify-between gap-2 min-w-0 shrink-0">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <GripVertical className="w-3.5 h-3.5 text-slate-400 cursor-grab shrink-0" />
-                            <span className="font-mono text-xs font-bold text-white truncate">
-                              {dev.name}
-                            </span>
-                            <span className="text-[10px] font-mono text-slate-300 hidden sm:inline shrink-0">
-                              · {dev.ipAddress}
-                            </span>
+                      {/* Device Chassis Faceplate: Compact Brand + Device Type on Left, Ports on Right */}
+                      <div className="flex-1 px-2.5 py-1.5 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
+                        {/* Minimal Left Badge: Only Brand & Device Type */}
+                        <div
+                          className="flex items-center gap-1.5 shrink-0 max-w-[130px]"
+                          title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
+                        >
+                          <GripVertical className="w-3.5 h-3.5 text-slate-400 cursor-grab shrink-0" />
+                          <div className="min-w-0 leading-tight">
+                            <div className="font-mono text-[11px] font-bold text-white truncate">
+                              {shortBrand}
+                            </div>
+                            <div className="text-[9px] font-mono uppercase tracking-wider text-slate-300/90 truncate">
+                              {CATEGORY_LABELS[dev.category]}
+                            </div>
                           </div>
-                          <span className="text-[10px] text-slate-300/90 font-mono truncate shrink-0">
-                            {dev.model} ({dev.uSize}U · {dev.ports.length}p)
-                          </span>
                         </div>
 
-                        {/* Physical Port Matrix Organized by Rows & Numbering Order */}
-                        <div className="flex flex-col gap-1 items-end justify-center z-30 w-full">
+                        {/* Physical Port Matrix — Contained strictly inside the rack */}
+                        <div className="flex-1 flex flex-col gap-1 items-end justify-center z-30 min-w-0">
                           {portRows.map((rowPorts, rIndex) => (
                             <div
                               key={`row-${dev.id}-${rIndex}`}
-                              className="flex items-center gap-1 justify-end flex-nowrap max-w-full"
+                              className="flex flex-wrap items-center gap-1 justify-end max-w-full"
                             >
                               {portRows.length > 1 && (
                                 <span className="text-[9px] font-mono text-slate-400 mr-0.5 shrink-0">
@@ -1335,7 +1332,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                           }
                                         : undefined
                                     }
-                                    className={`h-5 w-[22px] rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 ${
+                                    className={`h-[19px] w-[21px] rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 ${
                                       isPending || isHoveredCablePort
                                         ? 'bg-amber-500 text-slate-950 border-white ring-2 ring-amber-300 z-40'
                                         : connCable
@@ -1388,7 +1385,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         : 'bg-[#090D16] hover:bg-slate-900/50'
                     }`}
                   >
-                    <div className="w-10 h-full bg-slate-950/60 border-r border-slate-800/80 flex items-center justify-center font-mono text-[10px] text-slate-600 tabular-nums">
+                    <div className="w-9 h-full bg-slate-950/60 border-r border-slate-800/80 flex items-center justify-center font-mono text-[10px] text-slate-600 tabular-nums">
                       {uNumber.toString().padStart(2, '0')}
                     </div>
 
