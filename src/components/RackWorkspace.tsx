@@ -20,7 +20,8 @@ import {
   ArrowUpDown,
   Move,
   Columns2,
-  Settings2
+  Settings2,
+  ZoomIn
 } from 'lucide-react';
 import {
   CompanyProject,
@@ -48,6 +49,7 @@ import {
   getOrganizedDeviceZones,
   ensureDevicePortCoordinates
 } from '../constants';
+import { DeviceZoomEditorModal } from './DeviceZoomEditorModal';
 
 interface RackWorkspaceProps {
   project: CompanyProject;
@@ -115,6 +117,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(
     rack.devices[0]?.id || null
   );
+  const [zoomedDeviceId, setZoomedDeviceId] = useState<string | null>(null);
   const [selectedCableId, setSelectedCableId] = useState<string | null>(null);
   const [hoveredCableId, setHoveredCableId] = useState<string | null>(null);
   const [hoverInfo, setHoverInfo] = useState<HoverCableOrPortInfo | null>(null);
@@ -1957,24 +1960,29 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         setSelectedDeviceId(dev.id);
                         setSelectedCableId(null);
                       }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDeviceId(dev.id);
+                        setZoomedDeviceId(dev.id);
+                      }}
                       style={{
                         background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 60%, #0F172A 100%)`
                       }}
-                      className={`relative flex-1 min-w-0 px-2 py-1.5 flex items-stretch justify-between gap-1.5 overflow-hidden transition-colors cursor-pointer ${
+                      className={`group relative flex-1 min-w-0 px-2 py-1.5 flex items-stretch justify-between gap-1.5 overflow-hidden transition-colors cursor-pointer ${
                         isSelected
                           ? 'ring-2 ring-inset ring-blue-400 z-10'
                           : 'hover:brightness-110'
                       }`}
                     >
-                      {/* Brand + Type + Optional Half-Shelf Badge */}
+                      {/* Brand + Type + Quick Zoom Button */}
                       <div
                         className={`flex items-center gap-1 shrink-0 ${
-                          isHalfBay ? 'w-[70px]' : 'w-[86px]'
+                          isHalfBay ? 'w-[86px]' : 'w-[104px]'
                         }`}
-                        title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
+                        title={`${dev.name} — ${dev.model} (${dev.ipAddress}) · Doble clic o lupa para hacer Zoom`}
                       >
                         <GripVertical className="w-3 h-3 text-slate-400 cursor-grab shrink-0" />
-                        <div className="min-w-0 leading-tight">
+                        <div className="min-w-0 flex-1 leading-tight">
                           <div className="font-mono text-[10px] font-bold text-white truncate">
                             {isHalfBay ? dev.name : shortBrand}
                           </div>
@@ -1982,6 +1990,18 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                             <span>{CATEGORY_LABELS[dev.category]}</span>
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedDeviceId(dev.id);
+                            setZoomedDeviceId(dev.id);
+                          }}
+                          title="Hacer Zoom en este dispositivo (abrir vista ampliada para mover puertos y editar nombres)"
+                          className="p-1 rounded bg-blue-600/80 hover:bg-blue-500 text-white shadow cursor-pointer shrink-0 transition-transform hover:scale-110"
+                        >
+                          <ZoomIn className="w-3 h-3" />
+                        </button>
                       </div>
 
                       {/* Interactive Port Canvas */}
@@ -2299,19 +2319,53 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               <span>Inspector y Personalización</span>
             </h3>
             {selectedDevice && (
-              <button
-                type="button"
-                onClick={() => handleDeleteDevice(selectedDevice.id)}
-                className="px-2 py-1 rounded bg-red-950/70 hover:bg-red-900 text-red-200 text-[11px] flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Desmontar</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setZoomedDeviceId(selectedDevice.id)}
+                  className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold flex items-center gap-1 shadow transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  title="Abrir pestaña de Zoom del dispositivo para mover puertos y editar nombres en grande"
+                >
+                  <ZoomIn className="w-3 h-3" />
+                  <span>Zoom Equipo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteDevice(selectedDevice.id)}
+                  className="px-2 py-1 rounded bg-red-950/70 hover:bg-red-900 text-red-200 text-[11px] flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Desmontar</span>
+                </button>
+              </div>
             )}
           </div>
 
           {selectedDevice ? (
             <div className="space-y-3.5 text-xs">
+              {/* Quick Banner to Launch Full Zoom Tab */}
+              <button
+                type="button"
+                onClick={() => setZoomedDeviceId(selectedDevice.id)}
+                className="w-full p-2.5 rounded-lg bg-gradient-to-r from-blue-600/30 via-indigo-600/25 to-cyan-600/30 hover:from-blue-600/45 hover:to-cyan-600/45 border border-blue-500/60 text-left flex items-center justify-between gap-2 cursor-pointer transition-all shadow"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="p-1.5 rounded-md bg-blue-600 text-white shrink-0">
+                    <ZoomIn className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-display text-xs font-bold text-white truncate">
+                      Abrir Zoom del Dispositivo ({selectedDevice.name})
+                    </div>
+                    <div className="text-[10px] text-blue-200 truncate">
+                      Editar en grande, arrastrar puertos y renombrar etiquetas
+                    </div>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-blue-500 text-white font-mono text-[10px] font-bold shrink-0">
+                  Ampliar
+                </span>
+              </button>
               {/* Dual-Device Shelf Mode (2 Equipos en la misma U) */}
               <div className="p-3 rounded-lg bg-cyan-950/35 border border-cyan-600/60 space-y-2">
                 <div className="flex items-center justify-between">
@@ -4088,6 +4142,23 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           </div>
         </div>
       )}
+
+      {/* =================================================================== */}
+      {/* FULL-SCREEN DEVICE ZOOM & GRAPHICAL PORT EDITOR TAB/MODAL           */}
+      {/* =================================================================== */}
+      {zoomedDeviceId &&
+        (() => {
+          const zoomedDev = rack.devices.find((d) => d.id === zoomedDeviceId);
+          if (!zoomedDev) return null;
+          return (
+            <DeviceZoomEditorModal
+              rack={rack}
+              device={zoomedDev}
+              onUpdateRack={onUpdateRack}
+              onClose={() => setZoomedDeviceId(null)}
+            />
+          );
+        })()}
     </div>
   );
 };
