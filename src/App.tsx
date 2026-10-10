@@ -16,13 +16,14 @@ import {
 import { CompanyProject, RackUnit, ServerStorageInfo, UserRole } from './types';
 import { LoginScreen } from './components/LoginScreen';
 import { RackWorkspace } from './components/RackWorkspace';
+import { FinalRackConsulta } from './components/FinalRackConsulta';
 import { ProjectsManager } from './components/ProjectsManager';
 import { PatchMatrixView } from './components/PatchMatrixView';
 import { UbuntuDeployGuide } from './components/UbuntuDeployGuide';
 import { UsersManagerModal } from './components/UsersManagerModal';
 import { exportRackToTechnicalPDF } from './utils/pdfExport';
 
-type ActiveTab = 'simulator' | 'projects' | 'matrix' | 'ubuntu';
+type ActiveTab = 'simulator' | 'consulta' | 'projects' | 'matrix' | 'ubuntu';
 
 const TOKEN_STORAGE_KEY = 'rackmaster_ubuntu_token';
 
@@ -212,7 +213,7 @@ export default function App() {
           RackMaster DCIM
         </a>
 
-        {/* Zone 2: 4 concise single-line navigation links */}
+        {/* Zone 2: 5 concise single-line navigation links */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-400">
           <a
             href="#simulator"
@@ -226,7 +227,21 @@ export default function App() {
                 : 'hover:text-white'
             }`}
           >
-            Simulador de Rack
+            Editor de Rack
+          </a>
+          <a
+            href="#consulta"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveTab('consulta');
+            }}
+            className={`transition-colors whitespace-nowrap shrink-0 ${
+              activeTab === 'consulta'
+                ? 'text-white underline underline-offset-8 decoration-blue-500 decoration-2'
+                : 'hover:text-white'
+            }`}
+          >
+            Vista Final Consulta
           </a>
           <a
             href="#projects"
@@ -240,7 +255,7 @@ export default function App() {
                 : 'hover:text-white'
             }`}
           >
-            Proyectos y Empresas
+            Proyectos
           </a>
           <a
             href="#matrix"
@@ -254,7 +269,7 @@ export default function App() {
                 : 'hover:text-white'
             }`}
           >
-            Matriz de Cableado
+            Matriz Parcheo
           </a>
           <a
             href="#ubuntu"
@@ -293,7 +308,6 @@ export default function App() {
       {/* CONTEXTUAL WORKSPACE TOOLBAR (Project / Rack Selector + Users)      */}
       {/* =================================================================== */}
       <div className="bg-[#111827] border-b border-slate-800/90 px-6 py-2.5 flex flex-wrap items-center justify-between gap-4">
-        {/* Left: Active Company Project & Rack Switchers */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 text-xs">
             <Building2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
@@ -390,6 +404,16 @@ export default function App() {
             project={currentProject}
             rack={currentRack}
             onUpdateRack={handleUpdateCurrentRack}
+            onExportPDF={() =>
+              exportRackToTechnicalPDF(currentProject, currentRack)
+            }
+          />
+        )}
+
+        {activeTab === 'consulta' && currentProject && currentRack && (
+          <FinalRackConsulta
+            project={currentProject}
+            rack={currentRack}
             onExportPDF={() =>
               exportRackToTechnicalPDF(currentProject, currentRack)
             }

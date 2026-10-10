@@ -1,4 +1,11 @@
-import { HardwareTemplate, CableColor, DeviceCategory, DevicePort, RackDevice } from './types';
+import {
+  HardwareTemplate,
+  CableColor,
+  DeviceCategory,
+  DevicePort,
+  RackDevice,
+  PortNumberingOrder
+} from './types';
 
 export const DEVICE_COLOR_PALETTE: { id: string; name: string; hex: string }[] = [
   { id: 'slate', name: 'Gris Antracita (Estándar)', hex: '#1E293B' },
@@ -15,6 +22,265 @@ export const DEVICE_COLOR_PALETTE: { id: string; name: string; hex: string }[] =
 
 export const HARDWARE_CATALOG: HardwareTemplate[] = [
   // =========================================================================
+  // SWITCHES DE TODOS LOS TAMAÑOS (4, 5, 8, 10, 12, 16, 24, 28, 48, 52 PUERTOS)
+  // =========================================================================
+  {
+    id: 'tpl-sw-4p-ind',
+    name: 'Switch Compacto 4 Puertos PoE+ (+1 Uplink)',
+    brand: 'Ubiquiti / Planet',
+    model: 'USW-Flex-Mini / Industrial 4P',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 4,
+    portsPerRow: [4],
+    defaultNumberingOrder: 'sequential',
+    portType: 'rj45',
+    sfpUplinks: 1,
+    defaultColor: '#065F46',
+    powerWatts: 15,
+    defaultIp: '10.10.1.4/24',
+    description: 'Mini Switch gestionable de 4 puertos RJ45 GbE + 1 Uplink en bandeja 1U'
+  },
+  {
+    id: 'tpl-sw-5p-desk',
+    name: 'Switch 5 Puertos Gigabit (Bandeja 1U)',
+    brand: 'TP-Link / Netgear',
+    model: 'TL-SG105E / GS305E 5P',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 5,
+    portsPerRow: [5],
+    defaultNumberingOrder: 'sequential',
+    portType: 'rj45',
+    sfpUplinks: 0,
+    defaultColor: '#115E59',
+    powerWatts: 10,
+    defaultIp: '192.168.0.5/24',
+    description: 'Switch compacto Smart VLAN de 5 puertos Gigabit RJ45'
+  },
+  {
+    id: 'tpl-sw-8p-poe',
+    name: 'Switch 8 Puertos PoE+ (+2 SFP)',
+    brand: 'Cisco / Ubiquiti',
+    model: 'Catalyst C1000-8P / USW-8-150W',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 8,
+    portsPerRow: [8],
+    defaultNumberingOrder: 'sequential',
+    portType: 'rj45',
+    sfpUplinks: 2,
+    defaultColor: '#065F46',
+    powerWatts: 150,
+    defaultIp: '10.10.1.8/24',
+    description: 'Switch rackeable de 8 puertos Gigabit PoE+ con 2 uplinks SFP de fibra'
+  },
+  {
+    id: 'tpl-sw-10p-smart',
+    name: 'Switch 10 Puertos Smart Managed (8x GE + 2x SFP)',
+    brand: 'Cisco Small Business',
+    model: 'CBS250-8PP-E-2G (10P Total)',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 8,
+    portsPerRow: [8],
+    defaultNumberingOrder: 'sequential',
+    portType: 'rj45',
+    sfpUplinks: 2,
+    defaultColor: '#065F46',
+    powerWatts: 110,
+    defaultIp: '10.10.1.9/24',
+    description: 'Switch 10 puertos totales (8 RJ45 PoE + 2 Combo SFP) para oficinas pequeñas'
+  },
+  {
+    id: 'tpl-sw-12p-10g',
+    name: 'Switch Agregación 12 Puertos (8x RJ45 + 4x SFP+)',
+    brand: 'MikroTik / Netgear',
+    model: 'CRS312-4C+8XG-RM (12P 10G)',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 8,
+    portsPerRow: [8],
+    defaultNumberingOrder: 'sequential',
+    portType: 'rj45',
+    sfpUplinks: 4,
+    defaultColor: '#115E59',
+    powerWatts: 120,
+    defaultIp: '10.10.1.12/24',
+    description: 'Switch de 12 puertos 10GbE para servidores, cabinas NAS y uplinks troncales'
+  },
+  {
+    id: 'tpl-sw-12p-fiber',
+    name: 'Switch Core Fibra 12 Puertos SFP+ 10G',
+    brand: 'Ubiquiti / Cisco',
+    model: 'USW-Aggregation 12-SFP+',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 12,
+    portsPerRow: [12],
+    defaultNumberingOrder: 'sequential',
+    portType: 'sfp',
+    sfpUplinks: 0,
+    defaultColor: '#1E293B',
+    powerWatts: 65,
+    defaultIp: '10.10.1.2/24',
+    description: 'Switch de agregación óptica 100% fibra con 12 jaulas SFP+ 10G'
+  },
+  {
+    id: 'tpl-sw-16p-poe',
+    name: 'Switch 16 Puertos PoE+ (+2 SFP)',
+    brand: 'Ubiquiti / HPE Aruba',
+    model: 'USW-16-PoE / Instant On 1930-16G',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 16,
+    portsPerRow: [8, 8],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 2,
+    defaultColor: '#065F46',
+    powerWatts: 210,
+    defaultIp: '10.10.1.16/24',
+    description: 'Switch 16 puertos RJ45 PoE+ (2 filas: 1 arriba / 2 abajo) + 2 SFP'
+  },
+  {
+    id: 'tpl-sw-c9300-24',
+    name: 'Switch Core L3 Catalyst 24P PoE+ (+4 SFP+)',
+    brand: 'Cisco',
+    model: 'Catalyst 9300-24P (2 Filas x 12)',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 24,
+    portsPerRow: [12, 12],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 4,
+    defaultColor: '#065F46',
+    powerWatts: 350,
+    defaultIp: '10.10.1.10/24',
+    description: 'Switch 24 puertos PoE+ en 2 filas (1 arriba, 2 abajo) y 4 uplinks 10G SFP+'
+  },
+  {
+    id: 'tpl-sw-usw-pro-24',
+    name: 'Switch UniFi Pro 24 PoE (1 Fila x 24)',
+    brand: 'Ubiquiti',
+    model: 'USW-Pro-24-PoE',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 24,
+    portsPerRow: [24],
+    defaultNumberingOrder: 'sequential',
+    portType: 'rj45',
+    sfpUplinks: 2,
+    defaultColor: '#065F46',
+    powerWatts: 280,
+    defaultIp: '10.10.1.11/24',
+    description: 'Switch L2/L3 gestionable con 24x GbE RJ45 en una sola fila continua + 2x 10G SFP+'
+  },
+  {
+    id: 'tpl-sw-aruba-2930f',
+    name: 'Switch Aruba CX 6200F / 2930F 24G',
+    brand: 'HPE Aruba',
+    model: 'JL255A 2930F-24G-PoE+-4SFP+',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 24,
+    portsPerRow: [12, 12],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 4,
+    defaultColor: '#115E59',
+    powerWatts: 320,
+    defaultIp: '10.10.1.15/24',
+    description: 'Switch empresarial HPE Aruba 24 puertos (impares arriba, pares abajo) + 4x 10G SFP+'
+  },
+  {
+    id: 'tpl-sw-fortiswitch-124f',
+    name: 'FortiSwitch 124F-FPOE 24P FortiLink',
+    brand: 'Fortinet',
+    model: 'FS-124F-FPOE',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 24,
+    portsPerRow: [12, 12],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 4,
+    defaultColor: '#065F46',
+    powerWatts: 370,
+    defaultIp: '10.10.1.20/24',
+    description: 'Switch gestionado por FortiLink desde FortiGate con 24x GE PoE+ y 4x SFP+'
+  },
+  {
+    id: 'tpl-sw-mikrotik-crs326',
+    name: 'Switch MikroTik CRS326 24P (+2 SFP+)',
+    brand: 'MikroTik',
+    model: 'CRS326-24G-2S+RM',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 24,
+    portsPerRow: [12, 12],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 2,
+    defaultColor: '#115E59',
+    powerWatts: 24,
+    defaultIp: '192.168.88.2/24',
+    description: 'Cloud Router Switch Dual Boot (RouterOS / SwOS) 24x GbE + 2x 10G SFP+'
+  },
+  {
+    id: 'tpl-sw-tplink-omada',
+    name: 'Switch TP-Link Omada JetStream 28P (24+4)',
+    brand: 'TP-Link Omada',
+    model: 'TL-SG3428MP PoE+',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 24,
+    portsPerRow: [12, 12],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 4,
+    defaultColor: '#065F46',
+    powerWatts: 384,
+    defaultIp: '192.168.0.10/24',
+    description: 'Switch SDN Omada L2+ con 24 puertos PoE+ 384W y 4 ranuras SFP'
+  },
+  {
+    id: 'tpl-sw-c9300-48',
+    name: 'Switch Core L3 Catalyst 48P (+4 SFP+)',
+    brand: 'Cisco',
+    model: 'Catalyst 9300-48P (2 Filas x 24)',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 48,
+    portsPerRow: [24, 24],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 4,
+    defaultColor: '#065F46',
+    powerWatts: 480,
+    defaultIp: '10.10.1.48/24',
+    description: 'Switch alta densidad 48 puertos RJ45 PoE+ (1 arriba, 2 abajo) + 4 SFP+ (52 total)'
+  },
+  {
+    id: 'tpl-sw-usw-pro-48',
+    name: 'Switch UniFi Pro 48 PoE (+4 SFP+)',
+    brand: 'Ubiquiti',
+    model: 'USW-Pro-48-PoE (52P Total)',
+    category: 'switch',
+    uSize: 1,
+    defaultPorts: 48,
+    portsPerRow: [24, 24],
+    defaultNumberingOrder: 'vertical-odd-even',
+    portType: 'rj45',
+    sfpUplinks: 4,
+    defaultColor: '#115E59',
+    powerWatts: 600,
+    defaultIp: '10.10.1.49/24',
+    description: 'Switch 48 puertos GbE PoE+/PoE++ en 2 filas de 24 + 4 uplinks 10G SFP+'
+  },
+
+  // =========================================================================
   // FIREWALLS (Fortinet, Palo Alto, WatchGuard, SonicWall, Check Point, Sophos, pfSense)
   // =========================================================================
   {
@@ -25,6 +291,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 10,
+    portsPerRow: [10],
     portType: 'rj45',
     sfpUplinks: 0,
     defaultColor: '#7F1D1D',
@@ -40,12 +307,14 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 16,
+    portsPerRow: [8, 8],
+    defaultNumberingOrder: 'vertical-odd-even',
     portType: 'rj45',
     sfpUplinks: 4,
     defaultColor: '#7F1D1D',
     powerWatts: 115,
     defaultIp: '10.10.0.1/24',
-    description: 'Firewall NGFW 1U con 16x GE RJ45 + 4x 10G SFP+ Ultra-low latency'
+    description: 'Firewall NGFW 1U con 16x GE RJ45 (2 filas) + 4x 10G SFP+ SD-WAN'
   },
   {
     id: 'tpl-fw-fg200f',
@@ -55,6 +324,8 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 18,
+    portsPerRow: [9, 9],
+    defaultNumberingOrder: 'vertical-odd-even',
     portType: 'rj45',
     sfpUplinks: 8,
     defaultColor: '#7F1D1D',
@@ -70,6 +341,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 8,
+    portsPerRow: [8],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#7C2D12',
@@ -85,6 +357,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 8,
+    portsPerRow: [8],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#991B1B',
@@ -100,6 +373,8 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 16,
+    portsPerRow: [8, 8],
+    defaultNumberingOrder: 'vertical-odd-even',
     portType: 'rj45',
     sfpUplinks: 3,
     defaultColor: '#7F1D1D',
@@ -115,6 +390,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 10,
+    portsPerRow: [10],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#7F1D1D',
@@ -130,6 +406,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 10,
+    portsPerRow: [10],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#1E3A8A',
@@ -145,6 +422,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'firewall',
     uSize: 1,
     defaultPorts: 6,
+    portsPerRow: [6],
     portType: 'rj45',
     sfpUplinks: 4,
     defaultColor: '#1E293B',
@@ -164,6 +442,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'router',
     uSize: 1,
     defaultPorts: 4,
+    portsPerRow: [4],
     portType: 'rj45',
     sfpUplinks: 1,
     defaultColor: '#0369A1',
@@ -179,6 +458,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'router',
     uSize: 1,
     defaultPorts: 6,
+    portsPerRow: [6],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#0369A1',
@@ -194,6 +474,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'router',
     uSize: 1,
     defaultPorts: 5,
+    portsPerRow: [5],
     portType: 'rj45',
     sfpUplinks: 1,
     defaultColor: '#7C2D12',
@@ -209,6 +490,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'router',
     uSize: 1,
     defaultPorts: 4,
+    portsPerRow: [4],
     portType: 'rj45',
     sfpUplinks: 1,
     defaultColor: '#7F1D1D',
@@ -218,27 +500,30 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
   },
   {
     id: 'tpl-rt-ccr2004',
-    name: 'Router Core BGP/MPLS CCR2004',
+    name: 'Router Core BGP/MPLS CCR2004 (16P)',
     brand: 'MikroTik',
     model: 'CCR2004-16G-2S+',
     category: 'router',
     uSize: 1,
     defaultPorts: 16,
+    portsPerRow: [8, 8],
+    defaultNumberingOrder: 'vertical-odd-even',
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#312E81',
     powerWatts: 48,
     defaultIp: '10.10.0.2/24',
-    description: 'Cloud Core Router 16x Gigabit Ethernet + 2x 10G SFP+ cages'
+    description: 'Cloud Core Router 16x Gigabit Ethernet (2 bloques) + 2x 10G SFP+ cages'
   },
   {
     id: 'tpl-rt-rb5009',
-    name: 'Router MikroTik RB5009 / RB4011',
+    name: 'Router MikroTik RB5009 / RB4011 (8P)',
     brand: 'MikroTik',
     model: 'RB5009UPr+S+IN (Kit 1U)',
     category: 'router',
     uSize: 1,
     defaultPorts: 8,
+    portsPerRow: [8],
     portType: 'rj45',
     sfpUplinks: 1,
     defaultColor: '#312E81',
@@ -254,6 +539,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'router',
     uSize: 1,
     defaultPorts: 6,
+    portsPerRow: [6],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#312E81',
@@ -269,6 +555,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'router',
     uSize: 1,
     defaultPorts: 9,
+    portsPerRow: [9],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#1E293B',
@@ -278,7 +565,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
   },
 
   // =========================================================================
-  // PATCH PANELS (Configurables por filas: 12, 24, 48 puertos, Fibra ODF, Pasamuros)
+  // PATCH PANELS (Configurables por filas: 8, 12, 16, 24, 48 puertos, Fibra ODF)
   // =========================================================================
   {
     id: 'tpl-pp-24cat6a',
@@ -289,6 +576,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     uSize: 1,
     defaultPorts: 24,
     portsPerRow: [24],
+    defaultNumberingOrder: 'sequential',
     portType: 'keystone',
     sfpUplinks: 0,
     defaultColor: '#0F172A',
@@ -305,6 +593,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     uSize: 2,
     defaultPorts: 48,
     portsPerRow: [24, 24],
+    defaultNumberingOrder: 'sequential',
     portType: 'keystone',
     sfpUplinks: 0,
     defaultColor: '#0F172A',
@@ -321,6 +610,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     uSize: 1,
     defaultPorts: 16,
     portsPerRow: [16],
+    defaultNumberingOrder: 'sequential',
     portType: 'keystone',
     sfpUplinks: 0,
     defaultColor: '#0F172A',
@@ -337,122 +627,13 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     uSize: 1,
     defaultPorts: 12,
     portsPerRow: [12],
+    defaultNumberingOrder: 'sequential',
     portType: 'sfp',
     sfpUplinks: 0,
     defaultColor: '#7C2D12',
     powerWatts: 0,
     defaultIp: 'Pasivo (Óptico)',
     description: 'Distribuidor óptico 1U para acometidas troncales multimodo OM4 / monomodo OS2'
-  },
-
-  // =========================================================================
-  // SWITCHES (Cisco, Ubiquiti, Aruba, FortiSwitch, MikroTik, TP-Link Omada, Netgear)
-  // =========================================================================
-  {
-    id: 'tpl-sw-c9300-24',
-    name: 'Switch Core L3 Catalyst 24P PoE+',
-    brand: 'Cisco',
-    model: 'Catalyst 9300-24P',
-    category: 'switch',
-    uSize: 1,
-    defaultPorts: 24,
-    portType: 'rj45',
-    sfpUplinks: 4,
-    defaultColor: '#065F46',
-    powerWatts: 350,
-    defaultIp: '10.10.1.10/24',
-    description: 'Switch apilable 24 puertos PoE+ y 4 uplinks 10G SFP+'
-  },
-  {
-    id: 'tpl-sw-c9300-48',
-    name: 'Switch Core L3 Catalyst 48P (2 Filas)',
-    brand: 'Cisco',
-    model: 'Catalyst 9300-48P',
-    category: 'switch',
-    uSize: 1,
-    defaultPorts: 48,
-    portsPerRow: [24, 24],
-    portType: 'rj45',
-    sfpUplinks: 4,
-    defaultColor: '#065F46',
-    powerWatts: 480,
-    defaultIp: '10.10.1.12/24',
-    description: 'Switch de alta densidad 48 puertos RJ45 PoE+ en 2 filas de 24 + 4 SFP+'
-  },
-  {
-    id: 'tpl-sw-usw-pro-24',
-    name: 'Switch UniFi Pro 24 PoE',
-    brand: 'Ubiquiti',
-    model: 'USW-Pro-24-PoE',
-    category: 'switch',
-    uSize: 1,
-    defaultPorts: 24,
-    portType: 'rj45',
-    sfpUplinks: 2,
-    defaultColor: '#065F46',
-    powerWatts: 280,
-    defaultIp: '10.10.1.11/24',
-    description: 'Switch L2/L3 gestionable con 24x GbE RJ45 y 2x 10G SFP+'
-  },
-  {
-    id: 'tpl-sw-aruba-2930f',
-    name: 'Switch Aruba CX 6200F / 2930F 24G',
-    brand: 'HPE Aruba',
-    model: 'JL255A 2930F-24G-PoE+-4SFP+',
-    category: 'switch',
-    uSize: 1,
-    defaultPorts: 24,
-    portType: 'rj45',
-    sfpUplinks: 4,
-    defaultColor: '#115E59',
-    powerWatts: 320,
-    defaultIp: '10.10.1.15/24',
-    description: 'Switch empresarial HPE Aruba con 24 puertos PoE+ y 4 enlaces 10G SFP+'
-  },
-  {
-    id: 'tpl-sw-fortiswitch-124f',
-    name: 'FortiSwitch 124F-FPOE FortiLink',
-    brand: 'Fortinet',
-    model: 'FS-124F-FPOE',
-    category: 'switch',
-    uSize: 1,
-    defaultPorts: 24,
-    portType: 'rj45',
-    sfpUplinks: 4,
-    defaultColor: '#065F46',
-    powerWatts: 370,
-    defaultIp: '10.10.1.20/24',
-    description: 'Switch gestionado por FortiLink desde FortiGate con 24x GE PoE+ y 4x SFP+'
-  },
-  {
-    id: 'tpl-sw-mikrotik-crs326',
-    name: 'Switch MikroTik CRS326-24G-2S+RM',
-    brand: 'MikroTik',
-    model: 'CRS326-24G-2S+RM',
-    category: 'switch',
-    uSize: 1,
-    defaultPorts: 24,
-    portType: 'rj45',
-    sfpUplinks: 2,
-    defaultColor: '#115E59',
-    powerWatts: 24,
-    defaultIp: '192.168.88.2/24',
-    description: 'Cloud Router Switch Dual Boot (RouterOS / SwOS) 24x GbE + 2x 10G SFP+'
-  },
-  {
-    id: 'tpl-sw-tplink-omada',
-    name: 'Switch TP-Link Omada JetStream 28P',
-    brand: 'TP-Link Omada',
-    model: 'TL-SG3428MP PoE+',
-    category: 'switch',
-    uSize: 1,
-    defaultPorts: 24,
-    portType: 'rj45',
-    sfpUplinks: 4,
-    defaultColor: '#065F46',
-    powerWatts: 384,
-    defaultIp: '192.168.0.10/24',
-    description: 'Switch SDN Omada L2+ con 24 puertos PoE+ 384W y 4 ranuras SFP'
   },
 
   // =========================================================================
@@ -466,6 +647,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'server',
     uSize: 1,
     defaultPorts: 4,
+    portsPerRow: [4],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#1E293B',
@@ -481,6 +663,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'server',
     uSize: 2,
     defaultPorts: 6,
+    portsPerRow: [6],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#581C87',
@@ -496,6 +679,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'server',
     uSize: 2,
     defaultPorts: 4,
+    portsPerRow: [4],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#1E293B',
@@ -511,6 +695,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'server',
     uSize: 2,
     defaultPorts: 4,
+    portsPerRow: [4],
     portType: 'rj45',
     sfpUplinks: 2,
     defaultColor: '#1E293B',
@@ -520,18 +705,20 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
   },
   {
     id: 'tpl-srv-hikvision-nvr',
-    name: 'Grabador CCTV IP NVR 32 Canales (1U)',
+    name: 'Grabador CCTV IP NVR 32 Canales (16P PoE)',
     brand: 'Hikvision / Dahua',
     model: 'DS-7632NI-K2 / 16P PoE',
     category: 'server',
     uSize: 1,
     defaultPorts: 16,
+    portsPerRow: [8, 8],
+    defaultNumberingOrder: 'vertical-odd-even',
     portType: 'rj45',
     sfpUplinks: 0,
     defaultColor: '#1E293B',
     powerWatts: 180,
     defaultIp: '10.10.40.10/24',
-    description: 'Videograbador IP de seguridad física con 16 puertos PoE integrados para cámaras'
+    description: 'Videograbador IP de seguridad física con 16 puertos PoE integrados en 2 filas'
   },
   {
     id: 'tpl-srv-grandstream-pbx',
@@ -541,6 +728,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'server',
     uSize: 1,
     defaultPorts: 6,
+    portsPerRow: [6],
     portType: 'rj45',
     sfpUplinks: 0,
     defaultColor: '#312E81',
@@ -556,6 +744,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'server',
     uSize: 4,
     defaultPorts: 4,
+    portsPerRow: [4],
     portType: 'rj45',
     sfpUplinks: 4,
     defaultColor: '#581C87',
@@ -565,7 +754,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
   },
 
   // =========================================================================
-  // ENERGÍA, SAI / UPS Y REGLETAS PDU (APC, Eaton,Salicru)
+  // ENERGÍA, SAI / UPS Y REGLETAS PDU (APC, Eaton, Salicru)
   // =========================================================================
   {
     id: 'tpl-ups-apc-2u',
@@ -575,6 +764,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'ups',
     uSize: 2,
     defaultPorts: 2,
+    portsPerRow: [2],
     portType: 'rj45',
     sfpUplinks: 0,
     defaultColor: '#78350F',
@@ -590,6 +780,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'ups',
     uSize: 1,
     defaultPorts: 2,
+    portsPerRow: [2],
     portType: 'rj45',
     sfpUplinks: 0,
     defaultColor: '#78350F',
@@ -605,6 +796,7 @@ export const HARDWARE_CATALOG: HardwareTemplate[] = [
     category: 'ups',
     uSize: 1,
     defaultPorts: 8,
+    portsPerRow: [8],
     portType: 'power',
     sfpUplinks: 0,
     defaultColor: '#0F172A',
@@ -634,12 +826,112 @@ export const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   ups: 'SAI / PDU'
 };
 
+/**
+ * Organizes a device's ports into visual horizontal rows respecting:
+ * - Multi-row configurations (`portsPerRow`, explicit `row`, or automatic wrapping when > 16 ports)
+ * - Port Numbering Order:
+ *   - `sequential`: Row 1 = 1..12, Row 2 = 13..24
+ *   - `vertical-odd-even`: Row 1 (top) = 1, 3, 5.. (odd), Row 2 (bottom) = 2, 4, 6.. (even) -> "1 arriba, 2 abajo"
+ *   - `vertical-even-odd`: Row 1 (top) = 2, 4, 6.. (even), Row 2 (bottom) = 1, 3, 5.. (odd)
+ */
+export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
+  const order: PortNumberingOrder = dev.portNumberingOrder || 'sequential';
+  const sortedPorts = [...dev.ports].sort((a, b) => a.number - b.number);
+
+  // Separate regular ports and SFP uplinks if SFP uplinks exist on switches/routers
+  const regularPorts = sortedPorts.filter((p) => p.type !== 'sfp' || dev.category === 'patchpanel');
+  const sfpUplinks =
+    dev.category === 'patchpanel' ? [] : sortedPorts.filter((p) => p.type === 'sfp');
+
+  // Determine how many rows regular ports should span
+  let rowSizes: number[] = [];
+  if (dev.portsPerRow && dev.portsPerRow.length > 0) {
+    const sum = dev.portsPerRow.reduce((a, b) => a + b, 0);
+    if (sum === regularPorts.length) {
+      rowSizes = [...dev.portsPerRow];
+    }
+  }
+
+  if (rowSizes.length === 0) {
+    // Auto-wrap large port counts (> 16 ports) into balanced rows of max 16 or 24 ports
+    if (regularPorts.length <= 16) {
+      rowSizes = [regularPorts.length];
+    } else if (regularPorts.length <= 32) {
+      const top = Math.ceil(regularPorts.length / 2);
+      rowSizes = [top, regularPorts.length - top];
+    } else if (regularPorts.length <= 48) {
+      const top = Math.ceil(regularPorts.length / 2);
+      rowSizes = [top, regularPorts.length - top];
+    } else {
+      // > 48 ports: split in chunks of 24
+      let rem = regularPorts.length;
+      while (rem > 0) {
+        const take = Math.min(24, rem);
+        rowSizes.push(take);
+        rem -= take;
+      }
+    }
+  }
+
+  let rows: DevicePort[][] = [];
+
+  if (rowSizes.length <= 1) {
+    rows = [regularPorts];
+  } else if (order === 'vertical-odd-even' && rowSizes.length >= 2) {
+    // Interleaved vertical pairs: Top row gets 1, 3, 5..., Second row gets 2, 4, 6...
+    const numRows = rowSizes.length;
+    rows = Array.from({ length: numRows }, () => []);
+    regularPorts.forEach((port, idx) => {
+      const targetRow = idx % numRows;
+      rows[targetRow].push(port);
+    });
+  } else if (order === 'vertical-even-odd' && rowSizes.length >= 2) {
+    // Top row gets 2, 4, 6..., Bottom row gets 1, 3, 5...
+    const numRows = rowSizes.length;
+    rows = Array.from({ length: numRows }, () => []);
+    regularPorts.forEach((port, idx) => {
+      const targetRow = (numRows - 1) - (idx % numRows);
+      rows[targetRow].push(port);
+    });
+  } else {
+    // Sequential horizontal: Row 1 has 1..N, Row 2 has N+1..M
+    let cursor = 0;
+    for (const size of rowSizes) {
+      rows.push(regularPorts.slice(cursor, cursor + size));
+      cursor += size;
+    }
+    if (cursor < regularPorts.length) {
+      rows[rows.length - 1].push(...regularPorts.slice(cursor));
+    }
+  }
+
+  // Append SFP+ uplinks to the last row (or split across 2 rows if >= 4 SFP)
+  if (sfpUplinks.length > 0) {
+    if (rows.length >= 2 && sfpUplinks.length >= 2) {
+      sfpUplinks.forEach((sfp, idx) => {
+        const targetRow =
+          order === 'vertical-odd-even'
+            ? idx % rows.length
+            : Math.min(rows.length - 1, Math.floor((idx / sfpUplinks.length) * rows.length));
+        rows[targetRow].push(sfp);
+      });
+    } else if (rows.length > 0) {
+      rows[rows.length - 1].push(...sfpUplinks);
+    } else {
+      rows.push(sfpUplinks);
+    }
+  }
+
+  return rows.filter((r) => r.length > 0);
+}
+
 export function createDeviceFromTemplate(
   template: HardwareTemplate,
   uStart: number,
   customSuffix?: number,
   customRowCounts?: number[],
-  customColor?: string
+  customColor?: string,
+  customNumberingOrder?: PortNumberingOrder
 ): RackDevice {
   const id = `dev-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
   const ports: DevicePort[] = [];
@@ -708,6 +1000,8 @@ export function createDeviceFromTemplate(
     notes: `${template.description}. Instalado en U${uStart}.`,
     customColor: customColor || template.defaultColor || '#1E293B',
     portsPerRow: effectiveRows,
+    portNumberingOrder:
+      customNumberingOrder || template.defaultNumberingOrder || 'sequential',
     ports
   };
 }

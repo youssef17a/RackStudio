@@ -8,6 +8,14 @@ export type CableCategory = 'Cat6' | 'Cat6A' | 'Fibra OM4' | 'DAC 10G' | 'Alimen
 
 export type UserRole = 'admin' | 'technician';
 
+/**
+ * Port numbering schemes for multi-row switches and patch panels:
+ * - 'sequential': Row 1 has 1..12, Row 2 has 13..24 (horizontal left-to-right per row)
+ * - 'vertical-odd-even': Row 1 (top) has odd numbers 1, 3, 5..23; Row 2 (bottom) has even numbers 2, 4, 6..24 (1 arriba, 2 abajo)
+ * - 'vertical-even-odd': Row 1 (top) has even numbers 2, 4, 6..24; Row 2 (bottom) has odd numbers 1, 3, 5..23
+ */
+export type PortNumberingOrder = 'sequential' | 'vertical-odd-even' | 'vertical-even-odd';
+
 export interface SystemUser {
   id: string;
   username: string;
@@ -40,8 +48,9 @@ export interface RackDevice {
   powerWatts: number;
   status: 'nominal' | 'warning' | 'alert';
   notes: string;
-  customColor?: string;      // Hex color for device faceplate / chassis
-  portsPerRow?: number[];    // e.g. [24] for 1-row 24p, [24, 24] for 2-row 48p patch panel
+  customColor?: string;                   // Hex color for device faceplate / chassis
+  portsPerRow?: number[];                 // e.g. [24] for 1-row 24p, [24, 24] for 2-row 48p
+  portNumberingOrder?: PortNumberingOrder; // Order of ports across rows
   ports: DevicePort[];
 }
 
@@ -89,6 +98,7 @@ export interface HardwareTemplate {
   portType: PortType;
   sfpUplinks?: number;
   portsPerRow?: number[];
+  defaultNumberingOrder?: PortNumberingOrder;
   defaultColor?: string;
   powerWatts: number;
   defaultIp: string;
