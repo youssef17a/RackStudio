@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  FileDown,
+  Printer,
   LogOut,
   Building2,
   Server,
@@ -21,7 +21,7 @@ import { ProjectsManager } from './components/ProjectsManager';
 import { PatchMatrixView } from './components/PatchMatrixView';
 import { UbuntuDeployGuide } from './components/UbuntuDeployGuide';
 import { UsersManagerModal } from './components/UsersManagerModal';
-import { exportRackToTechnicalPDF } from './utils/pdfExport';
+import { PrintableCroquisModal } from './components/PrintableCroquisModal';
 
 type ActiveTab = 'simulator' | 'consulta' | 'projects' | 'matrix' | 'ubuntu';
 
@@ -41,6 +41,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<CurrentUserSession | null>(null);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [showUsersModal, setShowUsersModal] = useState<boolean>(false);
+  const [showCroquisModal, setShowCroquisModal] = useState<boolean>(false);
 
   const [projects, setProjects] = useState<CompanyProject[]>([]);
   const [serverInfo, setServerInfo] = useState<ServerStorageInfo | null>(null);
@@ -293,13 +294,13 @@ export default function App() {
             type="button"
             onClick={() => {
               if (currentProject && currentRack) {
-                exportRackToTechnicalPDF(currentProject, currentRack);
+                setShowCroquisModal(true);
               }
             }}
             className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-500 transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0"
           >
-            <FileDown className="w-3.5 h-3.5" />
-            <span>Exportar PDF Técnico</span>
+            <Printer className="w-3.5 h-3.5" />
+            <span>Imprimir Croquis (A3 / A4)</span>
           </button>
         </div>
       </header>
@@ -404,9 +405,7 @@ export default function App() {
             project={currentProject}
             rack={currentRack}
             onUpdateRack={handleUpdateCurrentRack}
-            onExportPDF={() =>
-              exportRackToTechnicalPDF(currentProject, currentRack)
-            }
+            onExportPDF={() => setShowCroquisModal(true)}
           />
         )}
 
@@ -414,9 +413,7 @@ export default function App() {
           <FinalRackConsulta
             project={currentProject}
             rack={currentRack}
-            onExportPDF={() =>
-              exportRackToTechnicalPDF(currentProject, currentRack)
-            }
+            onExportPDF={() => setShowCroquisModal(true)}
           />
         )}
 
@@ -438,9 +435,7 @@ export default function App() {
           <PatchMatrixView
             project={currentProject}
             rack={currentRack}
-            onExportPDF={() =>
-              exportRackToTechnicalPDF(currentProject, currentRack)
-            }
+            onExportPDF={() => setShowCroquisModal(true)}
           />
         )}
 
@@ -464,6 +459,15 @@ export default function App() {
             setShowUsersModal(false);
             loadProjectsFromServer(token);
           }}
+        />
+      )}
+
+      {/* Printable DIN A3 / DIN A4 Point-by-Point Croquis Modal */}
+      {showCroquisModal && currentProject && currentRack && (
+        <PrintableCroquisModal
+          project={currentProject}
+          rack={currentRack}
+          onClose={() => setShowCroquisModal(false)}
         />
       )}
     </div>

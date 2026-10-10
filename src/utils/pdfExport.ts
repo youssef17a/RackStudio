@@ -1,6 +1,21 @@
 import { jsPDF } from 'jspdf';
-import { CompanyProject, RackUnit, CableColor } from '../types';
-import { CATEGORY_LABELS } from '../constants';
+import {
+  CompanyProject,
+  RackUnit,
+  CableColor,
+  RackDevice,
+  DevicePort
+} from '../types';
+import {
+  CATEGORY_LABELS,
+  getOrganizedDeviceZones,
+  ensureDevicePortCoordinates
+} from '../constants';
+
+export type CroquisPaperFormat =
+  | 'a3-landscape'
+  | 'a4-landscape'
+  | 'a4-portrait';
 
 const COLOR_RGB: Record<CableColor, [number, number, number]> = {
   blue: [59, 130, 246],
@@ -13,13 +28,27 @@ const COLOR_RGB: Record<CableColor, [number, number, number]> = {
   slate: [100, 116, 139]
 };
 
+const COLOR_SPANISH: Record<CableColor, string> = {
+  blue: 'Azul',
+  yellow: 'Amarillo',
+  emerald: 'Verde',
+  red: 'Rojo',
+  cyan: 'Cian',
+  purple: 'Violeta',
+  orange: 'Naranja',
+  slate: 'Gris'
+};
+
 const CATEGORY_FILL: Record<string, [number, number, number]> = {
-  firewall: [69, 26, 26],
-  router: [30, 41, 75],
-  patchpanel: [24, 32, 44],
-  switch: [17, 54, 48],
+  firewall: [95, 25, 25],
+  router: [30, 58, 138],
+  ont: [6, 95, 70],
+  patchpanel: [15, 23, 42],
+  switch: [6, 78, 59],
+  pbx: [88, 28, 135],
+  nvr: [30, 58, 138],
   server: [30, 41, 59],
-  ups: [40, 35, 25]
+  ups: [120, 53, 15]
 };
 
 function hexToRgbTuple(hex?: string): [number, number, number] | null {
@@ -31,295 +60,382 @@ function hexToRgbTuple(hex?: string): [number, number, number] | null {
   return [r, g, b];
 }
 
-export function exportRackToTechnicalPDF(project: CompanyProject, rack: RackUnit): void {
+export interface PortConnectionLookup {
+  cableId: string;
+  cableLabel: string;
+  color: CableColor;
+  category: string;
+  vlan: string;
+  lengthMeters: number;
+  remoteDevice: RackDevice;
+  remotePort: DevicePort;
+}
+
+export function buildPortConnectionMap(
+  rack: RackUnit
+): Record<string, PortConnectionLookup> {
+  const map: Record<string, PortConnectionLookup> = {};
+  for (const cab of rack.cables) {
+    const fromDev = rack.devices.find((d) => d.id === cab.fromDeviceId);
+    const toDev = rack.devices.find((d) => d.id === cab.toDeviceId);
+    if (!fromDev || !toDev) continue;
+    const fromPort = fromDev.ports.find((p) => p.id === cab.fromPortId);
+    const toPort = toDev.ports.find((p) => p.id === cab.toPortId);
+    if (!fromPort || !toPort) continue;
+
+    map[fromPort.id] = {
+      cableId: cab.id,
+      cableLabel: cab.label,
+      color: cab.color,
+      category: cab.category,
+      vlan: cab.vlan,
+      lengthMeters: cab.lengthMeters,
+      remoteDevice: toDev,
+      remotePort: toPort
+    };
+
+    map[toPort.id] = {
+      cableId: cab.id,
+      cableLabel: cab.label,
+      color: cab.color,
+      category: cab.category,
+      vlan: cab.vlan,
+      lengthMeters: cab.lengthMeters,
+      remoteDevice: fromDev,
+      remotePort: fromPort
+    };
+  }
+  return map;
+}
+
+/**
+ * Generates a high-density printable Croquis PDF (DIN A3 Landscape, DIN A4 Landscape, or DIN A4 Portrait)
+ * showing the visual rack elevation AND a point-by-point wiring map ("Cada punto a dónde va conectado").
+ */
+export function exportRackToTechnicalPDF(
+  project: CompanyProject,
+  rack: RackUnit,
+  paperFormat: 'a3-landscape' | 'a4-landscape' | 'a4-portrait' = 'a3-landscape'
+): void {
+  const isA3 = paperFormat === 'a3-landscape';
+  const isLandscape = paperFormat !== 'a4-portrait';
+
   const doc = new jsPDF({
-    orientation: 'portrait',
+    orientation: isLandscape ? 'landscape' : 'portrait',
     unit: 'mm',
-    format: 'a4'
+    format: isA3 ? 'a3' : 'a4'
   });
 
-  const pageWidth = 210;
+  const pageW = isA3 ? 420 : isLandscape ? 297 : 210;
+  const pageH = isA3 ? 297 : isLandscape ? 210 : 297;
+
   const dateStr = new Date().toLocaleString('es-ES', {
     dateStyle: 'medium',
     timeStyle: 'short'
   });
 
-  // =========================================================================
-  // PAGE 1: ELEVACIÓN DE RACK Y DIAGRAMA VISUAL DE CABLEADO
-  // =========================================================================
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pageWidth, 28, 'F');
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.text('DOCUMENTACIÓN TÉCNICA DE INFRAESTRUCTURA Y RACK', 12, 11);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(148, 163, 184);
-  doc.text(`Empresa: ${project.companyName}  |  Proyecto: ${project.projectName}`, 12, 17.5);
-  doc.text(`Armario: ${rack.name} (${rack.locationCode})  |  Capacidad: ${rack.totalU}U  |  Fecha: ${dateStr}`, 12, 23);
-
+  const portConnMap = buildPortConnectionMap(rack);
+  const sortedDevices = [...rack.devices].sort((a, b) => b.uStart - a.uStart);
   const usedU = rack.devices.reduce((acc, d) => acc + d.uSize, 0);
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
   const totalPorts = rack.devices.reduce((acc, d) => acc + d.ports.length, 0);
 
-  doc.setDrawColor(226, 232, 240);
-  doc.setFillColor(248, 250, 252);
-  doc.rect(12, 32, 186, 14, 'FD');
+  // =========================================================================
+  // HEADER BANNER
+  // =========================================================================
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageW, 22, 'F');
 
-  doc.setTextColor(51, 65, 85);
-  doc.setFontSize(8);
+  doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.text(`OCUPACIÓN FÍSICA: ${usedU}U / ${rack.totalU}U (${Math.round((usedU / rack.totalU) * 100)}%)`, 16, 40.5);
-  doc.text(`EQUIPOS INSTALADOS: ${rack.devices.length}`, 72, 40.5);
-  doc.text(`LATIGUILLOS ACTIVOS: ${rack.cables.length} (${totalPorts} puertos)`, 115, 40.5);
-  doc.text(`CARGA ELÉCTRICA: ${totalWatts}W / ${rack.maxPowerWatts}W`, 160, 40.5);
+  doc.setFontSize(isA3 ? 14 : 11);
+  doc.text(
+    `CROQUIS DE CONEXIONES PUNTO A PUNTO — ${rack.name.toUpperCase()} (${rack.locationCode})`,
+    10,
+    9
+  );
 
-  const rackX = 16;
-  const rackY = 52;
-  const rackW = 78;
-  const rackH = 222;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(isA3 ? 9 : 7.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text(
+    `Empresa: ${project.companyName}  |  Proyecto: ${project.projectName}  |  Ubicación: ${project.siteAddress}  |  Ocupación: ${usedU}/${rack.totalU}U  |  Equipos: ${rack.devices.length}  |  Cables: ${rack.cables.length}  |  Formato: ${
+      isA3 ? 'DIN A3 Apaisado' : isLandscape ? 'DIN A4 Apaisado' : 'DIN A4 Vertical'
+    }  |  Fecha: ${dateStr}`,
+    10,
+    16.5
+  );
+
+  // =========================================================================
+  // LEFT COLUMN: ELEVACIÓN VISUAL DEL ARMARIO 19" Y PUERTOS
+  // =========================================================================
+  const rackX = 12;
+  const rackY = 27;
+  const rackW = isA3 ? 115 : isLandscape ? 86 : 75;
+  const rackH = pageH - 38;
   const uHeight = rackH / rack.totalU;
 
+  // Outer Rack Frame
   doc.setFillColor(15, 23, 42);
-  doc.rect(rackX - 4, rackY - 3, rackW + 8, rackH + 6, 'F');
+  doc.rect(rackX - 4, rackY - 2, rackW + 8, rackH + 4, 'F');
 
-  doc.setFillColor(30, 41, 59);
+  doc.setFillColor(24, 33, 47);
   doc.rect(rackX, rackY, rackW, rackH, 'F');
 
-  doc.setLineWidth(0.1);
+  // U Slot Grid Lines
+  doc.setLineWidth(0.08);
   for (let u = rack.totalU; u >= 1; u--) {
     const idxFromTop = rack.totalU - u;
     const yPos = rackY + idxFromTop * uHeight;
-
     doc.setDrawColor(51, 65, 85);
     doc.line(rackX, yPos, rackX + rackW, yPos);
 
     doc.setFont('courier', 'normal');
-    doc.setFontSize(5.2);
+    doc.setFontSize(isA3 ? 5.5 : 4.5);
     doc.setTextColor(148, 163, 184);
     const uStr = u.toString().padStart(2, '0');
-    doc.text(uStr, rackX - 3.3, yPos + uHeight * 0.72);
+    doc.text(uStr, rackX - 3.4, yPos + uHeight * 0.72);
     doc.text(uStr, rackX + rackW + 0.6, yPos + uHeight * 0.72);
   }
 
-  const deviceYCenterMap: Record<string, number> = {};
+  // Draw Mounted Devices & Graphical Port Dots inside Rack
+  const portCoordsInPdf: Record<string, { x: number; y: number }> = {};
 
-  for (const dev of rack.devices) {
+  for (const dev of sortedDevices) {
     const topU = dev.uStart + dev.uSize - 1;
     const idxFromTop = rack.totalU - topU;
     const yTop = rackY + idxFromTop * uHeight;
     const h = dev.uSize * uHeight;
-    deviceYCenterMap[dev.id] = yTop + h / 2;
 
     const customRgb = hexToRgbTuple(dev.customColor);
     const fill = customRgb || CATEGORY_FILL[dev.category] || [30, 41, 59];
     doc.setFillColor(fill[0], fill[1], fill[2]);
-    doc.setDrawColor(148, 163, 184);
-    doc.setLineWidth(0.25);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.2);
     doc.rect(rackX + 0.5, yTop + 0.2, rackW - 1, h - 0.4, 'FD');
+
+    const shortBrand = dev.model.split('/')[0].trim().split(' ')[0];
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(isA3 ? 6 : 4.8);
+    doc.text(
+      `${shortBrand} (${CATEGORY_LABELS[dev.category]})`.substring(0, 22),
+      rackX + 1.8,
+      yTop + Math.min(h / 2 + 0.8, 3.8)
+    );
+
+    // Draw individual port squares on the device faceplate
+    const positionedPorts = ensureDevicePortCoordinates(dev);
+    const portAreaX = rackX + (isA3 ? 28 : 22);
+    const portAreaW = rackW - (isA3 ? 30 : 24);
+
+    for (const p of positionedPorts) {
+      const px = portAreaX + ((p.xPercent ?? 50) / 100) * portAreaW;
+      const py = yTop + ((p.yPercent ?? 50) / 100) * h;
+      portCoordsInPdf[p.id] = { x: px, y: py };
+
+      const conn = portConnMap[p.id];
+      if (conn) {
+        const rgb = COLOR_RGB[conn.color] || [59, 130, 246];
+        doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+        doc.setDrawColor(255, 255, 255);
+      } else {
+        doc.setFillColor(15, 23, 42);
+        doc.setDrawColor(100, 116, 139);
+      }
+      const boxW = isA3 ? 2.4 : 1.7;
+      const boxH = isA3 ? 1.8 : 1.3;
+      doc.setLineWidth(0.12);
+      doc.rect(px - boxW / 2, py - boxH / 2, boxW, boxH, 'FD');
+    }
+  }
+
+  // Draw Patch Cables connecting ports on the Rack Diagram
+  rack.cables.forEach((cab, idx) => {
+    const pt1 = portCoordsInPdf[cab.fromPortId];
+    const pt2 = portCoordsInPdf[cab.toPortId];
+    if (pt1 && pt2) {
+      const rgb = COLOR_RGB[cab.color] || [59, 130, 246];
+      doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+      doc.setLineWidth(isA3 ? 0.45 : 0.32);
+      const trackX = rackX + rackW + 4.5 + (idx % 8) * 1.1;
+      doc.line(pt1.x, pt1.y, trackX, pt1.y);
+      doc.line(trackX, pt1.y, trackX, pt2.y);
+      doc.line(trackX, pt2.y, pt2.x, pt2.y);
+    }
+  });
+
+  // =========================================================================
+  // RIGHT AREA: CROQUIS DETALLADO EQUIPO POR EQUIPO ("CADA PUNTO A DÓNDE VA")
+  // =========================================================================
+  let startX = rackX + rackW + 16;
+  const availW = pageW - startX - 10;
+  let curY = 27;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(isA3 ? 11 : 9);
+  doc.setTextColor(15, 23, 42);
+  doc.text(
+    'CROQUIS DE PUNTOS POR DISPOSITIVO (MAPA DE CONEXIÓN DE CADA PUERTO)',
+    startX,
+    curY + 3
+  );
+  curY += 6;
+
+  for (const dev of sortedDevices) {
+    const zones = getOrganizedDeviceZones(dev);
+    const connectedPorts = dev.ports.filter((p) => Boolean(portConnMap[p.id]));
+
+    // Estimate block height needed for this device
+    const estHeight = isA3 ? 22 + zones.maxRows * 8 : 18 + zones.maxRows * 6.5;
+    if (curY + estHeight > pageH - 12) {
+      doc.addPage();
+      curY = 16;
+      startX = 12;
+    }
+
+    const blockW = startX === 12 ? pageW - 24 : availW;
+
+    // Device Header Bar
+    const customRgb = hexToRgbTuple(dev.customColor);
+    const fill = customRgb || CATEGORY_FILL[dev.category] || [30, 41, 59];
+    doc.setFillColor(fill[0], fill[1], fill[2]);
+    doc.rect(startX, curY, blockW, isA3 ? 6.5 : 5.5, 'F');
 
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(5.8);
-    const labelText = `[U${dev.uStart}] ${dev.name} (${dev.ports.length}p)`;
-    doc.text(labelText.substring(0, 32), rackX + 2, yTop + h / 2 + 0.5);
+    doc.setFontSize(isA3 ? 8 : 6.8);
+    const uTag =
+      dev.uSize > 1
+        ? `U${dev.uStart}-U${dev.uStart + dev.uSize - 1}`
+        : `U${dev.uStart}`;
+    doc.text(
+      `[${uTag}] ${dev.name}  —  ${dev.model} (${CATEGORY_LABELS[dev.category]})`,
+      startX + 2,
+      curY + (isA3 ? 4.5 : 3.8)
+    );
 
     doc.setFont('courier', 'normal');
-    doc.setFontSize(5);
-    doc.setTextColor(203, 213, 225);
-    doc.text(dev.ipAddress.substring(0, 18), rackX + rackW - 22, yTop + h / 2 + 0.5);
-  }
+    doc.setFontSize(isA3 ? 7 : 6);
+    doc.text(
+      `IP: ${dev.ipAddress}  |  ${connectedPorts.length}/${dev.ports.length} puntos conectados`,
+      startX + blockW - (isA3 ? 78 : 64),
+      curY + (isA3 ? 4.5 : 3.8)
+    );
 
-  rack.cables.forEach((cab, idx) => {
-    const y1 = deviceYCenterMap[cab.fromDeviceId];
-    const y2 = deviceYCenterMap[cab.toDeviceId];
-    if (y1 !== undefined && y2 !== undefined) {
-      const rgb = COLOR_RGB[cab.color] || [59, 130, 246];
-      doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
-      doc.setLineWidth(0.45);
-      const offsetTrack = rackX + rackW + 5 + (idx % 7) * 1.4;
-      doc.line(rackX + rackW, y1, offsetTrack, y1);
-      doc.line(offsetTrack, y1, offsetTrack, y2);
-      doc.line(offsetTrack, y2, rackX + rackW, y2);
-    }
-  });
+    curY += isA3 ? 7 : 6;
 
-  const tableX = 108;
-  let curY = 54;
+    // Draw every port as a box with its number/name AND where it goes
+    const colsPerRow = isA3 ? 8 : isLandscape ? 6 : 4;
+    const cellW = blockW / colsPerRow;
+    const cellH = isA3 ? 9.5 : 8;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(15, 23, 42);
-  doc.text('Plano de Ocupación por Unidades (U)', tableX, curY);
+    const totalGridRows = Math.ceil(dev.ports.length / colsPerRow);
 
-  curY += 4;
-  doc.setFillColor(241, 245, 249);
-  doc.rect(tableX, curY, 90, 6, 'F');
-  doc.setFontSize(6.5);
-  doc.setTextColor(51, 65, 85);
-  doc.text('POS U', tableX + 1.5, curY + 4);
-  doc.text('EQUIPO / HOSTNAME', tableX + 14, curY + 4);
-  doc.text('PUERTOS', tableX + 51, curY + 4);
-  doc.text('IP / GESTIÓN', tableX + 67, curY + 4);
+    for (let r = 0; r < totalGridRows; r++) {
+      if (curY + cellH > pageH - 10) {
+        doc.addPage();
+        curY = 16;
+        startX = 12;
+      }
 
-  curY += 6;
-  const sortedDevices = [...rack.devices].sort((a, b) => b.uStart - a.uStart);
+      const slice = dev.ports.slice(r * colsPerRow, (r + 1) * colsPerRow);
+      slice.forEach((port, cIdx) => {
+        const cx = startX + cIdx * cellW;
+        const conn = portConnMap[port.id];
 
-  doc.setFont('helvetica', 'normal');
-  for (const dev of sortedDevices) {
-    if (curY > 268) break;
-    const uRange = dev.uSize > 1 ? `U${dev.uStart}-U${dev.uStart + dev.uSize - 1}` : `U${dev.uStart}`;
-    doc.setDrawColor(226, 232, 240);
-    doc.line(tableX, curY + 5.5, tableX + 90, curY + 5.5);
+        if (conn) {
+          const rgb = COLOR_RGB[conn.color] || [59, 130, 246];
+          doc.setFillColor(248, 250, 252);
+          doc.setDrawColor(rgb[0], rgb[1], rgb[2]);
+          doc.setLineWidth(0.35);
+          doc.rect(cx + 0.4, curY, cellW - 0.8, cellH - 0.6, 'FD');
 
-    doc.setFont('courier', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text(uRange, tableX + 1.5, curY + 3.8);
+          // Top color strip inside port box
+          doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+          doc.rect(cx + 0.4, curY, cellW - 0.8, 2.5, 'F');
 
-    doc.setFont('helvetica', 'bold');
-    doc.text(dev.name.substring(0, 21), tableX + 14, curY + 3.8);
+          doc.setTextColor(255, 255, 255);
+          doc.setFont('courier', 'bold');
+          doc.setFontSize(isA3 ? 5.8 : 4.8);
+          doc.text(
+            `#${port.number.toString().padStart(2, '0')} ${port.label} (${conn.cableLabel})`.substring(
+              0,
+              24
+            ),
+            cx + 1.2,
+            curY + 1.9
+          );
 
-    doc.setFont('courier', 'normal');
-    doc.setTextColor(71, 85, 105);
-    doc.text(`${dev.ports.length}p`, tableX + 51, curY + 3.8);
+          // Destination Target Line 1: Remote Device
+          doc.setTextColor(15, 23, 42);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(isA3 ? 5.8 : 4.8);
+          doc.text(
+            `-> [U${conn.remoteDevice.uStart}] ${conn.remoteDevice.name}`.substring(
+              0,
+              25
+            ),
+            cx + 1.2,
+            curY + (isA3 ? 5.2 : 4.6)
+          );
 
-    doc.setFont('courier', 'normal');
-    doc.text(dev.ipAddress.substring(0, 16), tableX + 67, curY + 3.8);
+          // Destination Target Line 2: Remote Port + VLAN
+          doc.setTextColor(51, 65, 85);
+          doc.setFont('courier', 'normal');
+          doc.setFontSize(isA3 ? 5.3 : 4.4);
+          doc.text(
+            `Pto: ${conn.remotePort.label} (#${conn.remotePort.number}) · ${conn.vlan}`.substring(
+              0,
+              27
+            ),
+            cx + 1.2,
+            curY + (isA3 ? 8.1 : 6.9)
+          );
+        } else {
+          // Free port cell
+          doc.setFillColor(255, 255, 255);
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.15);
+          doc.rect(cx + 0.4, curY, cellW - 0.8, cellH - 0.6, 'FD');
 
-    curY += 5.8;
-  }
+          doc.setTextColor(100, 116, 139);
+          doc.setFont('courier', 'bold');
+          doc.setFontSize(isA3 ? 5.5 : 4.6);
+          doc.text(
+            `#${port.number.toString().padStart(2, '0')} ${port.label} [${port.type.toUpperCase()}]`.substring(
+              0,
+              22
+            ),
+            cx + 1.2,
+            curY + (isA3 ? 3.5 : 3)
+          );
 
-  if (curY < 235) {
-    curY += 6;
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(tableX, curY, 90, 32, 'FD');
+          doc.setTextColor(148, 163, 184);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(isA3 ? 5 : 4.2);
+          doc.text('LIBRE (Sin conexión)', cx + 1.2, curY + (isA3 ? 6.8 : 5.8));
+        }
+      });
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Ficha de Ubicación y Contacto Técnico', tableX + 3, curY + 5.5);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
-    doc.setTextColor(51, 65, 85);
-    doc.text(`Dirección: ${project.siteAddress}`, tableX + 3, curY + 11.5);
-    doc.text(`Responsable: ${project.technicalContact}`, tableX + 3, curY + 16.5);
-    doc.text(`Servidor Host: Ubuntu Server 24.04 LTS (Persistencia JSON)`, tableX + 3, curY + 21.5);
-    doc.text(`Plataforma: RackMaster DCIM — Documentación Técnica`, tableX + 3, curY + 26.5);
-  }
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Página 1 de 2 — Diagrama de Elevación Física y Asignación de Unidades', 12, 289);
-  doc.text('RackMaster DCIM · Ubuntu Server Edition', 155, 289);
-
-  // =========================================================================
-  // PAGE 2: MATRIZ DE PARCHEO Y CABLEADO ESTRUCTURADO PUNTO A PUNTO
-  // =========================================================================
-  doc.addPage();
-
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pageWidth, 24, 'F');
-
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text('MATRIZ DE CABLEADO ESTRUCTURADO Y PATCH PANELS', 12, 10.5);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text(`${project.companyName} — ${rack.name} (${rack.cables.length} conexiones documentadas)`, 12, 17.5);
-
-  let y2 = 32;
-  doc.setFillColor(30, 41, 59);
-  doc.rect(12, y2, 186, 7, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.text('ID / ETIQUETA', 15, y2 + 4.8);
-  doc.text('ORIGEN (EQUIPO : PUERTO)', 46, y2 + 4.8);
-  doc.text('DESTINO (EQUIPO : PUERTO)', 100, y2 + 4.8);
-  doc.text('TIPO / COLOR', 154, y2 + 4.8);
-  doc.text('VLAN / LONG.', 178, y2 + 4.8);
-
-  y2 += 7;
-
-  rack.cables.forEach((cab, idx) => {
-    if (y2 > 272) {
-      doc.addPage();
-      y2 = 20;
+      curY += cellH;
     }
 
-    const fromDev = rack.devices.find((d) => d.id === cab.fromDeviceId);
-    const fromPort = fromDev?.ports.find((p) => p.id === cab.fromPortId);
-    const toDev = rack.devices.find((d) => d.id === cab.toDeviceId);
-    const toPort = toDev?.ports.find((p) => p.id === cab.toPortId);
-
-    if (idx % 2 === 1) {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(12, y2, 186, 7, 'F');
-    }
-
-    doc.setDrawColor(226, 232, 240);
-    doc.line(12, y2 + 7, 198, y2 + 7);
-
-    const rgb = COLOR_RGB[cab.color] || [59, 130, 246];
-    doc.setFillColor(rgb[0], rgb[1], rgb[2]);
-    doc.rect(13, y2 + 2, 1.5, 3, 'F');
-
-    doc.setFont('courier', 'bold');
-    doc.setFontSize(6.8);
-    doc.setTextColor(15, 23, 42);
-    doc.text(cab.label.substring(0, 16), 16, y2 + 4.6);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(30, 41, 59);
-    const fromStr = `${fromDev ? `[U${fromDev.uStart}] ${fromDev.name}` : 'N/A'} : ${fromPort?.label || ''}`;
-    const toStr = `${toDev ? `[U${toDev.uStart}] ${toDev.name}` : 'N/A'} : ${toPort?.label || ''}`;
-    doc.text(fromStr.substring(0, 30), 46, y2 + 4.6);
-    doc.text(toStr.substring(0, 30), 100, y2 + 4.6);
-
-    doc.text(`${cab.category} (${cab.color})`, 154, y2 + 4.6);
-
-    doc.setFont('courier', 'normal');
-    doc.text(`${cab.vlan.substring(0, 10)} | ${cab.lengthMeters}m`, 178, y2 + 4.6);
-
-    y2 += 7;
-  });
-
-  if (y2 < 245) {
-    y2 += 12;
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(12, y2, 88, 24);
-    doc.rect(110, y2, 88, 24);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(71, 85, 105);
-    doc.text('ELABORADO POR (ADMINISTRACIÓN DE RED):', 15, y2 + 6);
-    doc.text('VALIDACIÓN Y AUDITORÍA DE PLANTA:', 113, y2 + 6);
-
-    doc.setFont('courier', 'normal');
-    doc.setFontSize(7);
-    doc.text('Firma Técnica autorizada', 15, y2 + 18);
-    doc.text(`Fecha de firma: ${dateStr}`, 113, y2 + 18);
+    curY += 3;
   }
 
+  // Footer
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Página 2 de 2 — Matriz de Parcheo y Trazabilidad de Latiguillos', 12, 289);
-  doc.text('RackMaster DCIM · Ubuntu Server Edition', 155, 289);
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    `Croquis Técnico de Conexionado Punto a Punto — ${project.companyName} · ${rack.name} (${totalPorts} puertos totales / ${rack.cables.length} latiguillos activos)`,
+    10,
+    pageH - 4
+  );
 
-  const safeName = `${project.companyName}_${rack.name}`
+  const safeName = `${project.companyName}_${rack.name}_${paperFormat}`
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_');
-  doc.save(`plano_rack_${safeName}.pdf`);
+  doc.save(`croquis_rack_${safeName}.pdf`);
 }
