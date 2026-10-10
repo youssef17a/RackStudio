@@ -9,8 +9,6 @@ import {
   GripVertical,
   Plus,
   Zap,
-  CheckCircle2,
-  AlertTriangle,
   Eye,
   EyeOff,
   X,
@@ -30,16 +28,20 @@ import {
   CableColor,
   CableCategory,
   PortType,
+  PortZone,
   DevicePort,
-  PortNumberingOrder
+  PortNumberingOrder,
+  CustomPortBlockSpec
 } from '../types';
 import {
   HARDWARE_CATALOG,
   CABLE_COLORS,
   CATEGORY_LABELS,
   DEVICE_COLOR_PALETTE,
+  PORT_TYPE_META,
   createDeviceFromTemplate,
-  getOrganizedDevicePortRows
+  createDeviceFromPortBlocks,
+  getOrganizedDeviceZones
 } from '../constants';
 
 interface RackWorkspaceProps {
@@ -130,26 +132,66 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const [patchPanelPending, setPatchPanelPending] =
     useState<PatchPanelSetupPending | null>(null);
 
-  // Custom Device Builder Modal State
+  // Custom Device Builder Modal State (Multi-Zone Faceplate Designer)
   const [showCustomBuilder, setShowCustomBuilder] = useState<boolean>(false);
-  const [customDevName, setCustomDevName] = useState('SW-PERSONALIZADO-01');
-  const [customDevBrand, setCustomDevBrand] = useState('Cisco / Fortinet / Movistar');
-  const [customDevCategory, setCustomDevCategory] = useState<DeviceCategory>('switch');
+  const [customDevName, setCustomDevName] = useState('EQUIPO-A-MEDIDA-01');
+  const [customDevBrand, setCustomDevBrand] = useState('Fortinet / Cisco / Movistar');
+  const [customDevCategory, setCustomDevCategory] = useState<DeviceCategory>('router');
   const [customDevUStart, setCustomDevUStart] = useState<number>(10);
   const [customDevUSize, setCustomDevUSize] = useState<number>(1);
-  const [customDevColor, setCustomDevColor] = useState<string>('#065F46');
-  const [customDevIp, setCustomDevIp] = useState<string>('10.10.1.50/24');
-  const [customDevWatts, setCustomDevWatts] = useState<number>(65);
-  const [customDevRj45, setCustomDevRj45] = useState<number>(24);
-  const [customDevSfp, setCustomDevSfp] = useState<number>(4);
-  const [customDevRows, setCustomDevRows] = useState<number>(2);
+  const [customDevColor, setCustomDevColor] = useState<string>('#0369A1');
+  const [customDevIp, setCustomDevIp] = useState<string>('192.168.1.1/24');
+  const [customDevWatts, setCustomDevWatts] = useState<number>(45);
   const [customDevNumbering, setCustomDevNumbering] =
     useState<PortNumberingOrder>('vertical-odd-even');
+  const [customPortBlocks, setCustomPortBlocks] = useState<CustomPortBlockSpec[]>([
+    {
+      id: 'blk-1',
+      labelPrefix: 'CON',
+      type: 'console',
+      count: 1,
+      zone: 'left',
+      rows: 1
+    },
+    {
+      id: 'blk-2',
+      labelPrefix: 'USB',
+      type: 'usb',
+      count: 1,
+      zone: 'left',
+      rows: 1
+    },
+    {
+      id: 'blk-3',
+      labelPrefix: 'WAN',
+      type: 'pon',
+      count: 1,
+      zone: 'center',
+      rows: 1
+    },
+    {
+      id: 'blk-4',
+      labelPrefix: 'LAN',
+      type: 'rj45',
+      count: 8,
+      zone: 'right',
+      rows: 1
+    },
+    {
+      id: 'blk-5',
+      labelPrefix: 'SFP+',
+      type: 'sfp',
+      count: 2,
+      zone: 'right',
+      rows: 1
+    }
+  ]);
 
   // Add Extra Ports to Mounted Device State
-  const [addPortQty, setAddPortQty] = useState<number>(4);
+  const [addPortQty, setAddPortQty] = useState<number>(1);
   const [addPortType, setAddPortType] = useState<PortType>('rj45');
   const [addPortPrefix, setAddPortPrefix] = useState<string>('GE');
+  const [addPortZone, setAddPortZone] = useState<PortZone>('right');
   const [addPortRow, setAddPortRow] = useState<number>(1);
 
   // Refs for SVG Cable Coordinates Calculation
@@ -292,50 +334,22 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     }
 
     const devId = `dev-custom-${Date.now()}`;
-    const ports: DevicePort[] = [];
-    const totalRows = Math.max(1, Math.min(4, customDevRows));
-    const basePerRow = Math.ceil(customDevRj45 / totalRows);
-    const portsPerRowArr: number[] = [];
-
-    let portNum = 1;
-    for (let r = 1; r <= totalRows; r++) {
-      let countThisRow = 0;
-      for (let i = 0; i < basePerRow && portNum <= customDevRj45; i++) {
-        const prefix =
-          customDevCategory === 'patchpanel'
-            ? 'P'
-            : customDevCategory === 'server'
-            ? 'eno'
-            : 'GE';
-        ports.push({
-          id: `${devId}-p${portNum}`,
-          number: portNum,
-          label: `${prefix}${portNum.toString().padStart(2, '0')}`,
-          type: customDevCategory === 'patchpanel' ? 'keystone' : 'rj45',
-          row: r,
-          vlan: '1',
-          speed: '1G'
-        });
-        portNum++;
-        countThisRow++;
-      }
-      if (countThisRow > 0) {
-        portsPerRowArr.push(countThisRow);
-      }
-    }
-
-    for (let s = 1; s <= customDevSfp; s++) {
-      const n = portNum++;
-      ports.push({
-        id: `${devId}-sfp${s}`,
-        number: n,
-        label: `SFP+${s}`,
-        type: 'sfp',
-        row: totalRows,
-        vlan: 'Trunk',
-        speed: '10G'
-      });
-    }
+    const validBlocks = customPortBlocks.filter((b) => b.count > 0);
+    const { ports } = createDeviceFromPortBlocks(
+      devId,
+      validBlocks.length > 0
+        ? validBlocks
+        : [
+            {
+              id: 'default-blk',
+              labelPrefix: 'GE',
+              type: 'rj45',
+              count: 8,
+              zone: 'right',
+              rows: 1
+            }
+          ]
+    );
 
     const customDevice: RackDevice = {
       id: devId,
@@ -350,9 +364,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       serialNumber: `SN-CUST-${Math.floor(100000 + Math.random() * 900000)}`,
       powerWatts: customDevWatts,
       status: 'nominal',
-      notes: `Dispositivo personalizado (${ports.length} puertos en ${totalRows} fila/s).`,
+      notes: `Dispositivo personalizado con ${ports.length} puertos distribuidos en zonas.`,
       customColor: customDevColor,
-      portsPerRow: portsPerRowArr.length > 0 ? portsPerRowArr : [ports.length],
       portNumberingOrder: customDevNumbering,
       ports
     };
@@ -368,6 +381,79 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     );
   };
 
+  const applyCustomBuilderPreset = (
+    presetType: 'ont' | 'firewall' | 'switch24' | 'switch48' | 'pbx' | 'server'
+  ) => {
+    if (presetType === 'ont') {
+      setCustomDevCategory('ont');
+      setCustomDevBrand('Movistar / Huawei ONT');
+      setCustomDevName('ONT-FIBRA-01');
+      setCustomDevColor('#0369A1');
+      setCustomPortBlocks([
+        { id: 'p1', labelPrefix: 'PON', type: 'pon', count: 1, zone: 'left', rows: 1 },
+        { id: 'p2', labelPrefix: 'TEL', type: 'fxs', count: 2, zone: 'left', rows: 1 },
+        { id: 'p3', labelPrefix: 'USB', type: 'usb', count: 1, zone: 'center', rows: 1 },
+        { id: 'p4', labelPrefix: 'LAN', type: 'rj45', count: 4, zone: 'right', rows: 1 }
+      ]);
+    } else if (presetType === 'firewall') {
+      setCustomDevCategory('firewall');
+      setCustomDevBrand('Fortinet FortiGate');
+      setCustomDevName('FW-FORTIGATE-01');
+      setCustomDevColor('#7F1D1D');
+      setCustomPortBlocks([
+        { id: 'p1', labelPrefix: 'USB', type: 'usb', count: 1, zone: 'left', rows: 1 },
+        { id: 'p2', labelPrefix: 'CON', type: 'console', count: 1, zone: 'left', rows: 1 },
+        { id: 'p3', labelPrefix: 'WAN', type: 'rj45', count: 2, zone: 'center', rows: 1 },
+        { id: 'p4', labelPrefix: 'DMZ', type: 'rj45', count: 1, zone: 'center', rows: 1 },
+        { id: 'p5', labelPrefix: 'LAN', type: 'rj45', count: 8, zone: 'right', rows: 1 },
+        { id: 'p6', labelPrefix: 'SFP+', type: 'sfp', count: 2, zone: 'right', rows: 1 }
+      ]);
+    } else if (presetType === 'switch24') {
+      setCustomDevCategory('switch');
+      setCustomDevBrand('Cisco / Aruba Switch');
+      setCustomDevName('SW-ACCESO-24P');
+      setCustomDevColor('#065F46');
+      setCustomPortBlocks([
+        { id: 'p1', labelPrefix: 'CON', type: 'console', count: 1, zone: 'left', rows: 1 },
+        { id: 'p2', labelPrefix: 'USB', type: 'usb', count: 1, zone: 'left', rows: 1 },
+        { id: 'p3', labelPrefix: 'GE', type: 'rj45', count: 24, zone: 'center', rows: 2 },
+        { id: 'p4', labelPrefix: 'SFP+', type: 'sfp', count: 4, zone: 'right', rows: 2 }
+      ]);
+    } else if (presetType === 'switch48') {
+      setCustomDevCategory('switch');
+      setCustomDevBrand('Cisco / Ubiquiti 48P');
+      setCustomDevName('SW-CORE-48P');
+      setCustomDevColor('#065F46');
+      setCustomPortBlocks([
+        { id: 'p1', labelPrefix: 'CON', type: 'console', count: 1, zone: 'left', rows: 1 },
+        { id: 'p2', labelPrefix: 'GE', type: 'rj45', count: 48, zone: 'center', rows: 4 },
+        { id: 'p3', labelPrefix: 'SFP+', type: 'sfp', count: 4, zone: 'right', rows: 2 }
+      ]);
+    } else if (presetType === 'pbx') {
+      setCustomDevCategory('pbx');
+      setCustomDevBrand('Grandstream / Yeastar PBX');
+      setCustomDevName('PBX-CENTRALITA-01');
+      setCustomDevColor('#312E81');
+      setCustomPortBlocks([
+        { id: 'p1', labelPrefix: 'USB', type: 'usb', count: 1, zone: 'left', rows: 1 },
+        { id: 'p2', labelPrefix: 'FXS', type: 'fxs', count: 4, zone: 'center', rows: 1 },
+        { id: 'p3', labelPrefix: 'FXO', type: 'fxs', count: 4, zone: 'center', rows: 1 },
+        { id: 'p4', labelPrefix: 'NET', type: 'rj45', count: 3, zone: 'right', rows: 1 }
+      ]);
+    } else if (presetType === 'server') {
+      setCustomDevCategory('server');
+      setCustomDevBrand('Dell / HPE Server');
+      setCustomDevName('SRV-UBUNTU-01');
+      setCustomDevColor('#1E293B');
+      setCustomPortBlocks([
+        { id: 'p1', labelPrefix: 'iDRAC', type: 'console', count: 1, zone: 'left', rows: 1 },
+        { id: 'p2', labelPrefix: 'USB', type: 'usb', count: 2, zone: 'left', rows: 1 },
+        { id: 'p3', labelPrefix: 'eno', type: 'rj45', count: 4, zone: 'center', rows: 1 },
+        { id: 'p4', labelPrefix: '10G', type: 'sfp', count: 2, zone: 'right', rows: 1 }
+      ]);
+    }
+  };
+
   const handleAddPortsToSelectedDevice = () => {
     if (!selectedDevice || addPortQty < 1) return;
     const currentPorts = selectedDevice.ports;
@@ -377,39 +463,34 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     const addedPorts: DevicePort[] = [];
     for (let i = 0; i < addPortQty; i++) {
       const num = nextStartNumber + i;
+      const defaultSingleLabel =
+        addPortQty === 1 && !/\d$/.test(addPortPrefix.trim())
+          ? addPortPrefix.trim() || 'P'
+          : `${addPortPrefix.trim() || 'P'}${num.toString().padStart(2, '0')}`;
       addedPorts.push({
         id: `${selectedDevice.id}-extra-${Date.now()}-${i}`,
         number: num,
-        label: `${addPortPrefix.trim() || 'P'}${num.toString().padStart(2, '0')}`,
+        label: defaultSingleLabel,
         type: addPortType,
+        zone: addPortZone,
         row: addPortRow,
         vlan: addPortType === 'sfp' ? 'Trunk' : '1',
-        speed: addPortType === 'sfp' ? '10G' : '1G'
+        speed:
+          addPortType === 'sfp'
+            ? '10G'
+            : addPortType === 'pon'
+            ? '2.5G GPON'
+            : addPortType === 'console'
+            ? '115200 bps'
+            : addPortType === 'usb'
+            ? 'USB 3.0'
+            : '1G'
       });
     }
 
     const updatedPorts = [...currentPorts, ...addedPorts];
-    const regularCount = updatedPorts.filter(
-      (p) => p.type !== 'sfp' || selectedDevice.category === 'patchpanel'
-    ).length;
-
-    // Auto-update portsPerRow if device exceeds 16 ports so it wraps cleanly into rows
-    let nextPortsPerRow = selectedDevice.portsPerRow;
-    if (regularCount > 16 && (!nextPortsPerRow || nextPortsPerRow.length < 2)) {
-      const top = Math.ceil(regularCount / 2);
-      nextPortsPerRow = [top, regularCount - top];
-    } else if (nextPortsPerRow && nextPortsPerRow.length >= 2) {
-      const top = Math.ceil(regularCount / nextPortsPerRow.length);
-      nextPortsPerRow = nextPortsPerRow.map((_, idx) =>
-        idx === nextPortsPerRow!.length - 1
-          ? regularCount - top * (nextPortsPerRow!.length - 1)
-          : top
-      );
-    }
-
     const updatedDevice: RackDevice = {
       ...selectedDevice,
-      portsPerRow: nextPortsPerRow,
       ports: updatedPorts
     };
 
@@ -420,7 +501,13 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       )
     });
     showNotice(
-      `Añadidos ${addPortQty} puerto(s) (${addPortType.toUpperCase()}) a ${selectedDevice.name}`
+      `Añadido(s) ${addPortQty} puerto(s) (${PORT_TYPE_META[addPortType].shortTag}) en zona ${
+        addPortZone === 'left'
+          ? 'Izquierda'
+          : addPortZone === 'center'
+          ? 'Centro'
+          : 'Derecha'
+      } de ${selectedDevice.name}`
     );
   };
 
@@ -477,6 +564,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             : device.category === 'patchpanel'
             ? 'keystone'
             : 'rj45',
+          zone: existingPort?.zone || 'right',
           row: rowNum,
           vlan: existingPort?.vlan || '10',
           speed: existingPort?.speed || '1G'
@@ -727,8 +815,104 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const usedU = rack.devices.reduce((acc, d) => acc + d.uSize, 0);
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
 
+  // Helper to render a single port button with distinct styling per port type (PON, USB, Console, SFP+, FXS, RJ45, Power)
+  const renderPortButton = (dev: RackDevice, port: DevicePort, rowLen: number) => {
+    const connCable = getCableForPort(port.id);
+    const isPending = pendingPort?.portId === port.id;
+    const isHoveredCablePort = connCable && hoveredCableId === connCable.id;
+    const portColorHex = connCable ? COLOR_HEX_MAP[connCable.color] : undefined;
+
+    const isDefaultNumeric = /^(GE|P|PORT|eno)\d+$/i.test(port.label);
+    const showShortText =
+      !isDefaultNumeric ||
+      port.type === 'console' ||
+      port.type === 'usb' ||
+      port.type === 'pon' ||
+      port.type === 'fxs';
+
+    const displayTag = showShortText
+      ? port.label.substring(0, 4)
+      : port.number.toString().padStart(2, '0');
+
+    const typeStyle =
+      port.type === 'pon'
+        ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/90 hover:bg-emerald-900'
+        : port.type === 'console'
+        ? 'bg-sky-950/90 text-sky-300 border-sky-500/80 hover:bg-sky-900'
+        : port.type === 'usb'
+        ? 'bg-indigo-950/90 text-indigo-300 border-indigo-500/80 hover:bg-indigo-900'
+        : port.type === 'fxs'
+        ? 'bg-purple-950/90 text-purple-300 border-purple-500/80 hover:bg-purple-900'
+        : port.type === 'sfp'
+        ? 'bg-slate-950 text-cyan-300 border-cyan-700/90 hover:border-cyan-300 hover:bg-cyan-950/60'
+        : port.type === 'power'
+        ? 'bg-amber-950/80 text-amber-300 border-amber-600/80 hover:bg-amber-900'
+        : port.type === 'keystone'
+        ? 'bg-slate-950 text-slate-300 border-slate-700 hover:border-blue-400 hover:bg-slate-800'
+        : 'bg-slate-900 text-slate-200 border-slate-700 hover:border-blue-400 hover:bg-slate-800';
+
+    return (
+      <button
+        key={port.id}
+        ref={(el) => {
+          portRefs.current[port.id] = el;
+        }}
+        type="button"
+        title={`Puerto #${port.number} [${port.label}] — ${PORT_TYPE_META[port.type]?.label || port.type}`}
+        onMouseEnter={() => {
+          if (connCable) {
+            setHoveredCableId(connCable.id);
+            const fromD = rack.devices.find((d) => d.id === connCable.fromDeviceId);
+            const fromP = fromD?.ports.find((p) => p.id === connCable.fromPortId);
+            const toD = rack.devices.find((d) => d.id === connCable.toDeviceId);
+            const toP = toD?.ports.find((p) => p.id === connCable.toPortId);
+            setHoverInfo({
+              text: `${connCable.label}: [U${fromD?.uStart}] ${fromD?.name} (${fromP?.label} #${fromP?.number}) ⟷ [U${toD?.uStart}] ${toD?.name} (${toP?.label} #${toP?.number})`,
+              subtext: `${connCable.category} · ${connCable.vlan} · ${connCable.lengthMeters}m`,
+              colorHex: COLOR_HEX_MAP[connCable.color]
+            });
+          } else {
+            setHoveredCableId(null);
+            setHoverInfo({
+              text: `Puerto #${port.number} [${port.label}] (${PORT_TYPE_META[port.type]?.shortTag || port.type.toUpperCase()}) — [U${dev.uStart}] ${dev.name}`,
+              subtext: `Libre · clic para conectar cable`
+            });
+          }
+        }}
+        onMouseLeave={() => {
+          setHoveredCableId(null);
+          setHoverInfo(null);
+        }}
+        onClick={(e) => handlePortClick(e, dev, port.id, port.label)}
+        style={
+          connCable
+            ? {
+                backgroundColor: portColorHex,
+                borderColor: '#ffffff'
+              }
+            : undefined
+        }
+        className={`h-[19px] ${
+          rowLen > 16
+            ? 'w-[17px] text-[8px]'
+            : showShortText
+            ? 'min-w-[22px] px-1 text-[8px]'
+            : 'w-[21px] text-[9px]'
+        } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 truncate ${
+          isPending || isHoveredCablePort
+            ? 'bg-amber-500 text-slate-950 border-white ring-2 ring-amber-300 z-40'
+            : connCable
+            ? 'text-white shadow-sm hover:brightness-125'
+            : typeStyle
+        }`}
+      >
+        {displayTag}
+      </button>
+    );
+  };
+
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 p-4 lg:p-6 max-w-[1800px] mx-auto items-start">
+    <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 p-4 lg:p-6 max-w-[1840px] mx-auto items-start">
       {/* =================================================================== */}
       {/* LEFT PANEL (3 COLS): EXPANDED CATALOG + CUSTOM DEVICE + PATCHING    */}
       {/* =================================================================== */}
@@ -740,7 +924,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 Catálogo de Equipos y Marcas
               </h2>
               <p className="text-[11px] text-slate-400">
-                Switches 4/8/12/16/24/48p, Fortinet, Movistar HGU...
+                ONTs, Routers, Switches 4-52p, Firewalls, PBX, NVR...
               </p>
             </div>
             <button
@@ -753,7 +937,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium rounded-lg flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               <Sliders className="w-3 h-3" />
-              <span>+ Equipo a Medida</span>
+              <span>+ Diseñar Equipo</span>
             </button>
           </div>
 
@@ -763,7 +947,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               type="text"
               value={catalogSearch}
               onChange={(e) => setCatalogSearch(e.target.value)}
-              placeholder="Buscar (4p, 8p, 16p, 48p, Movistar, Fortinet...)"
+              placeholder="Buscar (ONT, Movistar, Fortinet, 48p, PBX, NVR...)"
               className="w-full pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -772,10 +956,13 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             {(
               [
                 { id: 'all', label: 'Todos' },
+                { id: 'ont', label: 'ONT / Fibra ISP' },
+                { id: 'router', label: 'Router' },
+                { id: 'firewall', label: 'Firewall' },
                 { id: 'switch', label: 'Switch (4-52p)' },
-                { id: 'firewall', label: 'FW' },
-                { id: 'router', label: 'Router/ISP' },
-                { id: 'patchpanel', label: 'Patch' },
+                { id: 'patchpanel', label: 'Patch Panel' },
+                { id: 'pbx', label: 'PBX VoIP' },
+                { id: 'nvr', label: 'CCTV NVR' },
                 { id: 'server', label: 'Server/NAS' },
                 { id: 'ups', label: 'SAI/PDU' }
               ] as const
@@ -784,7 +971,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setCatalogFilter(tab.id)}
-                className={`px-2 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                className={`px-2 py-1 text-[10px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                   catalogFilter === tab.id
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-400 hover:text-slate-200'
@@ -823,8 +1010,14 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                     <div className="text-[11px] text-slate-400 mt-0.5 truncate">
                       {tpl.brand} · <span className="font-mono text-slate-300">{tpl.uSize}U</span> ·{' '}
                       <span className="font-mono text-slate-300">
-                        {tpl.defaultPorts + (tpl.sfpUplinks || 0)} puertos
+                        {tpl.portBlocks
+                          ? tpl.portBlocks.reduce((s, b) => s + b.count, 0)
+                          : tpl.defaultPorts + (tpl.sfpUplinks || 0)}{' '}
+                        puertos
                       </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">
+                      {tpl.description}
                     </div>
                   </div>
                 </div>
@@ -862,14 +1055,10 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             </button>
           </div>
 
-          <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-            Haga clic en cualquier puerto libre y luego en el puerto destino para tirar el cable. Pase el ratón sobre cualquier puerto o cable para ver cómo va conectado.
-          </p>
-
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Color del Cable (Código TIA-606)
+                Color del Cable
               </label>
               <div className="grid grid-cols-4 gap-1.5">
                 {CABLE_COLORS.map((col) => (
@@ -896,7 +1085,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-[11px] text-slate-400 mb-1">
-                  Categoría Medio
+                  Tipo de Cable
                 </label>
                 <select
                   value={activeCableCategory}
@@ -906,7 +1095,10 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   <option value="Cat6A">Cat6A RJ45</option>
                   <option value="Cat6">Cat6 UTP</option>
                   <option value="Fibra OM4">Fibra OM4 LC</option>
+                  <option value="Fibra OS2 PON">Fibra OS2 SC/APC PON</option>
                   <option value="DAC 10G">DAC SFP+ 10G</option>
+                  <option value="Consola Serial">Consola Serial RS232</option>
+                  <option value="Teléfono RJ11">Línea Voz RJ11</option>
                 </select>
               </div>
               <div>
@@ -920,22 +1112,6 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-white font-mono focus:outline-none focus:border-blue-500"
                 />
               </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
-              <span className="text-[11px] text-slate-400">Filtrar vista por color:</span>
-              <select
-                value={cableFilterColor}
-                onChange={(e) => setCableFilterColor(e.target.value as CableColor | 'all')}
-                className="px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-200"
-              >
-                <option value="all">Todos los colores ({rack.cables.length})</option>
-                {CABLE_COLORS.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
         </div>
@@ -1056,7 +1232,11 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               <span className="flex items-center gap-2 truncate">
                 <Cable className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                 <span>
-                  Pase el cursor sobre cualquier puerto o latiguillo para consultar su conexión, o haga clic para parchear.
+                  Leyenda Puertos: <strong className="text-emerald-400 font-mono">PON</strong> Fibra ISP ·{' '}
+                  <strong className="text-sky-400 font-mono">CON</strong> Consola Serie ·{' '}
+                  <strong className="text-indigo-400 font-mono">USB</strong> ·{' '}
+                  <strong className="text-purple-400 font-mono">TEL</strong> RJ11 Voz ·{' '}
+                  <strong className="text-cyan-400 font-mono">SFP+</strong> 10G
                 </span>
               </span>
               <span className="font-mono text-[11px] text-slate-500 shrink-0">
@@ -1107,7 +1287,6 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
 
                 return (
                   <g key={cab.id}>
-                    {/* Invisible hover hit-path */}
                     <path
                       d={dPath}
                       fill="none"
@@ -1179,13 +1358,14 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 if (slotInfo && slotInfo.type === 'start_top') {
                   const dev = slotInfo.device;
                   const isSelected = selectedDeviceId === dev.id;
-                  const portRows = getOrganizedDevicePortRows(dev);
+                  const { leftRows, centerRows, rightRows, maxRows } =
+                    getOrganizedDeviceZones(dev);
+
                   const rowHeightPx = Math.max(
                     dev.uSize * 38,
-                    portRows.length * 24 + 14
+                    maxRows * 24 + 14
                   );
 
-                  // Extract concise Brand name (e.g., "Fortinet", "Cisco", "Movistar", "Ubiquiti")
                   const shortBrand = dev.model
                     .split('/')[0]
                     .trim()
@@ -1194,8 +1374,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   const defaultCategoryColor =
                     dev.category === 'firewall'
                       ? '#7F1D1D'
-                      : dev.category === 'router'
-                      ? '#312E81'
+                      : dev.category === 'router' || dev.category === 'ont'
+                      ? '#0369A1'
                       : dev.category === 'patchpanel'
                       ? '#0F172A'
                       : dev.category === 'switch'
@@ -1243,11 +1423,11 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         )}
                       </div>
 
-                      {/* Device Chassis Faceplate: Compact Brand + Device Type on Left, Non-Wrapping Port Rows on Right */}
+                      {/* Device Chassis Faceplate: Brand + Type Badge + 3 Realistic Zones (Left / Center / Right) */}
                       <div className="flex-1 px-2 py-1.5 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
-                        {/* Minimal Left Badge: Only Brand & Device Type */}
+                        {/* Minimal Brand & Type Badge */}
                         <div
-                          className="flex items-center gap-1 shrink-0 w-[92px]"
+                          className="flex items-center gap-1 shrink-0 w-[86px]"
                           title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
                         >
                           <GripVertical className="w-3 h-3 text-slate-400 cursor-grab shrink-0" />
@@ -1261,111 +1441,70 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                           </div>
                         </div>
 
-                        {/* Physical Port Matrix — Each configured row is strictly 1 single line (flex-nowrap) */}
-                        <div className="flex-1 flex flex-col gap-1 items-end justify-center z-30 min-w-0">
-                          {portRows.map((rowPorts, rIndex) => (
-                            <div
-                              key={`row-${dev.id}-${rIndex}`}
-                              className="flex flex-nowrap items-center gap-[3px] justify-end w-full"
-                            >
-                              {portRows.length > 1 && (
-                                <span className="text-[8px] font-mono text-slate-400 mr-0.5 shrink-0">
-                                  F{rIndex + 1}
-                                </span>
-                              )}
-                              {rowPorts.map((port) => {
-                                const connCable = getCableForPort(port.id);
-                                const isPending = pendingPort?.portId === port.id;
-                                const isHoveredCablePort =
-                                  connCable && hoveredCableId === connCable.id;
-                                const portColorHex = connCable
-                                  ? COLOR_HEX_MAP[connCable.color]
-                                  : undefined;
-
-                                // Detect if user gave this port a custom name different from default GE01/P01/PORT01/eno01/SFP+1
-                                const isDefaultLabel =
-                                  /^(GE|P|PORT|eno|SFP\+)\d+$/i.test(port.label);
-                                const customPortName = !isDefaultLabel
-                                  ? port.label
-                                  : null;
-
-                                return (
-                                  <button
-                                    key={port.id}
-                                    ref={(el) => {
-                                      portRefs.current[port.id] = el;
-                                    }}
-                                    type="button"
-                                    title={`Puerto #${port.number} (${port.label})`}
-                                    onMouseEnter={() => {
-                                      if (connCable) {
-                                        setHoveredCableId(connCable.id);
-                                        const fromD = rack.devices.find(
-                                          (d) => d.id === connCable.fromDeviceId
-                                        );
-                                        const fromP = fromD?.ports.find(
-                                          (p) => p.id === connCable.fromPortId
-                                        );
-                                        const toD = rack.devices.find(
-                                          (d) => d.id === connCable.toDeviceId
-                                        );
-                                        const toP = toD?.ports.find(
-                                          (p) => p.id === connCable.toPortId
-                                        );
-                                        setHoverInfo({
-                                          text: `${connCable.label}: [U${fromD?.uStart}] ${fromD?.name} (${fromP?.label} #${fromP?.number}) ⟷ [U${toD?.uStart}] ${toD?.name} (${toP?.label} #${toP?.number})`,
-                                          subtext: `${connCable.category} · ${connCable.vlan} · ${connCable.lengthMeters}m`,
-                                          colorHex: COLOR_HEX_MAP[connCable.color]
-                                        });
-                                      } else {
-                                        setHoveredCableId(null);
-                                        setHoverInfo({
-                                          text: `Puerto #${port.number} [${port.label}] — [U${dev.uStart}] ${dev.name}`,
-                                          subtext: `Libre · clic para tirar latiguillo (${port.type.toUpperCase()})`
-                                        });
-                                      }
-                                    }}
-                                    onMouseLeave={() => {
-                                      setHoveredCableId(null);
-                                      setHoverInfo(null);
-                                    }}
-                                    onClick={(e) =>
-                                      handlePortClick(e, dev, port.id, port.label)
-                                    }
-                                    style={
-                                      connCable
-                                        ? {
-                                            backgroundColor: portColorHex,
-                                            borderColor: '#ffffff'
-                                          }
-                                        : undefined
-                                    }
-                                    className={`h-[19px] ${
-                                      rowPorts.length > 16
-                                        ? 'flex-1 min-w-[14px] max-w-[20px] text-[8px]'
-                                        : customPortName
-                                        ? 'min-w-[22px] max-w-[46px] px-1 text-[8px]'
-                                        : 'w-[22px] text-[9px]'
-                                    } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 truncate ${
-                                      isPending || isHoveredCablePort
-                                        ? 'bg-amber-500 text-slate-950 border-white ring-2 ring-amber-300 z-40'
-                                        : connCable
-                                        ? 'text-white shadow-sm hover:brightness-125'
-                                        : port.type === 'sfp'
-                                        ? 'bg-slate-950 text-cyan-300 border-cyan-800/80 hover:border-cyan-300 hover:bg-cyan-950/60'
-                                        : port.type === 'keystone'
-                                        ? 'bg-slate-950 text-slate-300 border-slate-700 hover:border-blue-400 hover:bg-slate-800'
-                                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-blue-400 hover:bg-slate-800'
-                                    }`}
-                                  >
-                                    {customPortName
-                                      ? customPortName.substring(0, 5)
-                                      : port.number.toString().padStart(2, '0')}
-                                  </button>
-                                );
-                              })}
+                        {/* 3-Zone Physical Faceplate Container (Left Auxiliary, Center Main Bank, Right Uplinks/LAN) */}
+                        <div className="flex-1 flex items-center justify-between gap-2 z-30 min-w-0">
+                          {/* ZONE 1: LEFT PORTS (Console, USB, PON, Mgmt, etc.) */}
+                          {leftRows.length > 0 ? (
+                            <div className="flex flex-col gap-1 items-start justify-center shrink-0 pr-1.5 border-r border-slate-700/60">
+                              {leftRows.map((rPorts, rIdx) => (
+                                <div
+                                  key={`zleft-${dev.id}-${rIdx}`}
+                                  className="flex flex-nowrap items-center gap-[3px]"
+                                >
+                                  {rPorts.map((p) =>
+                                    renderPortButton(dev, p, rPorts.length)
+                                  )}
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          ) : (
+                            <div />
+                          )}
+
+                          {/* ZONE 2: CENTER PORTS (Separated Main Switch Bank / WAN / FXS) */}
+                          {centerRows.length > 0 && (
+                            <div className="flex flex-col gap-1 items-center justify-center shrink-0 px-1">
+                              {centerRows.map((rPorts, rIdx) => (
+                                <div
+                                  key={`zcenter-${dev.id}-${rIdx}`}
+                                  className="flex flex-nowrap items-center gap-[3px]"
+                                >
+                                  {rPorts.map((p) =>
+                                    renderPortButton(dev, p, rPorts.length)
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* ZONE 3: RIGHT PORTS (LAN Ports / SFP+ Uplinks / Patch Panel Row) */}
+                          {rightRows.length > 0 && (
+                            <div
+                              className={`flex flex-col gap-1 items-end justify-center shrink-0 ${
+                                centerRows.length > 0
+                                  ? 'pl-1.5 border-l border-slate-700/60'
+                                  : ''
+                              }`}
+                            >
+                              {rightRows.map((rPorts, rIdx) => (
+                                <div
+                                  key={`zright-${dev.id}-${rIdx}`}
+                                  className="flex flex-nowrap items-center gap-[3px] justify-end"
+                                >
+                                  {rightRows.length > 1 &&
+                                    leftRows.length === 0 &&
+                                    centerRows.length === 0 && (
+                                      <span className="text-[8px] font-mono text-slate-400 mr-0.5 shrink-0">
+                                        F{rIdx + 1}
+                                      </span>
+                                    )}
+                                  {rPorts.map((p) =>
+                                    renderPortButton(dev, p, rPorts.length)
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1426,7 +1565,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       </div>
 
       {/* =================================================================== */}
-      {/* RIGHT PANEL (3 COLS): DEVICE INSPECTOR, NUMBERING ORDER & PORTS     */}
+      {/* RIGHT PANEL (3 COLS): DEVICE INSPECTOR, ZONES, PORT NAMES & PORTS   */}
       {/* =================================================================== */}
       <div className="xl:col-span-3 space-y-5">
         <div className="bg-[#111827] border border-slate-800 rounded-xl p-4">
@@ -1435,7 +1574,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               {selectedDevice?.category === 'firewall' && (
                 <Shield className="w-4 h-4 text-red-400" />
               )}
-              {selectedDevice?.category === 'router' && (
+              {(selectedDevice?.category === 'router' ||
+                selectedDevice?.category === 'ont') && (
                 <RouterIcon className="w-4 h-4 text-indigo-400" />
               )}
               {selectedDevice?.category === 'switch' && (
@@ -1610,7 +1750,210 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 </div>
               </div>
 
-              {/* Row & Points per Row Editor (Available for Patch Panels and Switches) */}
+              {/* Custom Port Names, Zone (Left/Center/Right) & Type Editor */}
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-200">
+                    Nombrar y Posicionar Puertos ({selectedDevice.ports.length})
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Nombre · Zona · Tipo
+                  </span>
+                </div>
+                <div className="max-h-[195px] overflow-y-auto space-y-1.5 pr-1">
+                  {selectedDevice.ports.map((p) => (
+                    <div
+                      key={`rename-port-${p.id}`}
+                      className="flex items-center gap-1.5 bg-slate-950/80 px-2 py-1 rounded border border-slate-800/80"
+                    >
+                      <span className="font-mono text-[10px] text-slate-400 w-7 shrink-0">
+                        #{p.number.toString().padStart(2, '0')}
+                      </span>
+                      <input
+                        type="text"
+                        value={p.label}
+                        onChange={(e) => {
+                          const newLabel = e.target.value;
+                          onUpdateRack({
+                            ...rack,
+                            devices: rack.devices.map((d) =>
+                              d.id === selectedDevice.id
+                                ? {
+                                    ...d,
+                                    ports: d.ports.map((portItem) =>
+                                      portItem.id === p.id
+                                        ? { ...portItem, label: newLabel }
+                                        : portItem
+                                    )
+                                  }
+                                : d
+                            )
+                          });
+                        }}
+                        placeholder={`P${p.number.toString().padStart(2, '0')}`}
+                        className="flex-1 min-w-0 px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] font-mono text-white focus:outline-none focus:border-blue-500"
+                      />
+                      <select
+                        value={p.zone || 'right'}
+                        title="Posición en el frontal del equipo (Izquierda, Centro o Derecha)"
+                        onChange={(e) => {
+                          const nextZone = e.target.value as PortZone;
+                          onUpdateRack({
+                            ...rack,
+                            devices: rack.devices.map((d) =>
+                              d.id === selectedDevice.id
+                                ? {
+                                    ...d,
+                                    ports: d.ports.map((portItem) =>
+                                      portItem.id === p.id
+                                        ? { ...portItem, zone: nextZone }
+                                        : portItem
+                                    )
+                                  }
+                                : d
+                            )
+                          });
+                        }}
+                        className="px-1 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-mono text-slate-200"
+                      >
+                        <option value="left">Izq</option>
+                        <option value="center">Cen</option>
+                        <option value="right">Der</option>
+                      </select>
+                      <select
+                        value={p.type}
+                        title="Tipo físico de puerto"
+                        onChange={(e) => {
+                          const nextType = e.target.value as PortType;
+                          onUpdateRack({
+                            ...rack,
+                            devices: rack.devices.map((d) =>
+                              d.id === selectedDevice.id
+                                ? {
+                                    ...d,
+                                    ports: d.ports.map((portItem) =>
+                                      portItem.id === p.id
+                                        ? { ...portItem, type: nextType }
+                                        : portItem
+                                    )
+                                  }
+                                : d
+                            )
+                          });
+                        }}
+                        className="px-1 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-mono text-cyan-300"
+                      >
+                        <option value="rj45">RJ45</option>
+                        <option value="sfp">SFP+</option>
+                        <option value="pon">PON</option>
+                        <option value="console">CON</option>
+                        <option value="usb">USB</option>
+                        <option value="fxs">TEL</option>
+                        <option value="keystone">KEY</option>
+                        <option value="power">PWR</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Add / Remove Extra Ports on Any Device in Any Zone (Left, Center, Right) */}
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-200">
+                    Añadir Puerto en Cualquier Parte ({selectedDevice.ports.length}p)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRemoveLastPortFromDevice}
+                    className="text-[10px] font-mono text-red-400 hover:text-red-300 underline cursor-pointer"
+                  >
+                    -1 Puerto
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">
+                      Cant.
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={24}
+                      value={addPortQty}
+                      onChange={(e) =>
+                        setAddPortQty(
+                          Math.max(1, Math.min(24, Number(e.target.value) || 1))
+                        )
+                      }
+                      className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">
+                      Tipo Puerto
+                    </label>
+                    <select
+                      value={addPortType}
+                      onChange={(e) => {
+                        const t = e.target.value as PortType;
+                        setAddPortType(t);
+                        if (t === 'console') setAddPortPrefix('CON');
+                        else if (t === 'usb') setAddPortPrefix('USB');
+                        else if (t === 'pon') setAddPortPrefix('PON');
+                        else if (t === 'fxs') setAddPortPrefix('TEL');
+                        else if (t === 'sfp') setAddPortPrefix('SFP+');
+                        else setAddPortPrefix('GE');
+                      }}
+                      className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white"
+                    >
+                      <option value="rj45">RJ45 Ethernet</option>
+                      <option value="sfp">SFP+ Fibra</option>
+                      <option value="pon">PON Fibra ISP</option>
+                      <option value="console">Consola Serie</option>
+                      <option value="usb">Puerto USB</option>
+                      <option value="fxs">Teléfono RJ11</option>
+                      <option value="keystone">Keystone</option>
+                      <option value="power">Eléctrico IEC</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">
+                      Posición
+                    </label>
+                    <select
+                      value={addPortZone}
+                      onChange={(e) => setAddPortZone(e.target.value as PortZone)}
+                      className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
+                    >
+                      <option value="left">Izquierda</option>
+                      <option value="center">Centro</option>
+                      <option value="right">Derecha</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={addPortPrefix}
+                    onChange={(e) => setAddPortPrefix(e.target.value)}
+                    placeholder="Nombre (ej. CON, USB, WAN, GE)"
+                    className="flex-1 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddPortsToSelectedDevice}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Añadir</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Row & Points per Row Editor */}
               <div className="p-3 rounded-lg bg-blue-950/30 border border-blue-800/60 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold text-blue-200 flex items-center gap-1.5">
@@ -1693,139 +2036,6 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 </div>
               </div>
 
-              {/* Custom Port Names / Labels Editor */}
-              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-200">
-                    Nombrar Puertos ({selectedDevice.ports.length})
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    Ej: WAN1, Despacho, AP-01...
-                  </span>
-                </div>
-                <div className="max-h-[165px] overflow-y-auto space-y-1.5 pr-1">
-                  {selectedDevice.ports.map((p) => (
-                    <div
-                      key={`rename-port-${p.id}`}
-                      className="flex items-center gap-2 bg-slate-950/80 px-2 py-1 rounded border border-slate-800/80"
-                    >
-                      <span className="font-mono text-[10px] text-slate-400 w-9 shrink-0">
-                        #{p.number.toString().padStart(2, '0')}
-                      </span>
-                      <input
-                        type="text"
-                        value={p.label}
-                        onChange={(e) => {
-                          const newLabel = e.target.value;
-                          onUpdateRack({
-                            ...rack,
-                            devices: rack.devices.map((d) =>
-                              d.id === selectedDevice.id
-                                ? {
-                                    ...d,
-                                    ports: d.ports.map((portItem) =>
-                                      portItem.id === p.id
-                                        ? { ...portItem, label: newLabel }
-                                        : portItem
-                                    )
-                                  }
-                                : d
-                            )
-                          });
-                        }}
-                        placeholder={`P${p.number.toString().padStart(2, '0')}`}
-                        className="flex-1 px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] font-mono text-white focus:outline-none focus:border-blue-500"
-                      />
-                      <span className="font-mono text-[9px] text-slate-500 uppercase shrink-0">
-                        {p.type}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Add / Remove Extra Ports on Any Device */}
-              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-200">
-                    Ampliar Puertos ({selectedDevice.ports.length} totales)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleRemoveLastPortFromDevice}
-                    className="text-[10px] font-mono text-red-400 hover:text-red-300 underline cursor-pointer"
-                  >
-                    -1 Puerto
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-1.5">
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Cant.
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={24}
-                      value={addPortQty}
-                      onChange={(e) =>
-                        setAddPortQty(
-                          Math.max(1, Math.min(24, Number(e.target.value) || 1))
-                        )
-                      }
-                      className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Tipo
-                    </label>
-                    <select
-                      value={addPortType}
-                      onChange={(e) => setAddPortType(e.target.value as PortType)}
-                      className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white"
-                    >
-                      <option value="rj45">RJ45 GbE</option>
-                      <option value="sfp">SFP+ Fibra</option>
-                      <option value="keystone">Keystone</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Fila
-                    </label>
-                    <select
-                      value={addPortRow}
-                      onChange={(e) => setAddPortRow(Number(e.target.value))}
-                      className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                    >
-                      <option value={1}>Fila 1</option>
-                      <option value={2}>Fila 2</option>
-                      <option value={3}>Fila 3</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={addPortPrefix}
-                    onChange={(e) => setAddPortPrefix(e.target.value)}
-                    placeholder="Prefijo (ej. GE, WAN, P)"
-                    className="flex-1 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddPortsToSelectedDevice}
-                    className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>Añadir Puertos</span>
-                  </button>
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[11px] text-slate-400 mb-1">
@@ -1889,7 +2099,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             </div>
           ) : (
             <p className="text-xs text-slate-400 py-4 text-center">
-              Seleccione cualquier dispositivo en el rack para organizar sus puertos (1 arriba / 2 abajo), nombrar puertos, cambiar su color o agregar filas.
+              Seleccione cualquier dispositivo en el rack para organizar sus puertos (Izquierda, Centro, Derecha), nombrar puertos o cambiar su color.
             </p>
           )}
         </div>
@@ -2083,7 +2293,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         const nextPoints: number[] = [];
                         for (let i = 0; i < rCount; i++) {
                           nextPoints.push(
-                            patchPanelPending.pointsPerRow[i] || 24
+                            patchPanelPending.pointsPerRow[i] || 12
                           );
                         }
                         setPatchPanelPending({
@@ -2141,12 +2351,12 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       <input
                         type="number"
                         min={1}
-                        max={48}
+                        max={24}
                         value={pts}
                         onChange={(e) => {
                           const val = Math.max(
                             1,
-                            Math.min(48, Number(e.target.value) || 1)
+                            Math.min(24, Number(e.target.value) || 1)
                           );
                           const copy = [...patchPanelPending.pointsPerRow];
                           copy[idx] = val;
@@ -2161,31 +2371,6 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   </div>
                 ))}
               </div>
-
-              {patchPanelPending.rowCount >= 2 && (
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">
-                    Orden de Numeración entre Filas
-                  </label>
-                  <select
-                    value={patchPanelPending.numberingOrder}
-                    onChange={(e) =>
-                      setPatchPanelPending({
-                        ...patchPanelPending,
-                        numberingOrder: e.target.value as PortNumberingOrder
-                      })
-                    }
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                  >
-                    <option value="sequential">
-                      Secuencial por fila (Fila 1: 1..24, Fila 2: 25..48)
-                    </option>
-                    <option value="vertical-odd-even">
-                      Vertical: 1 Arriba / 2 Abajo (Impares arriba, Pares abajo)
-                    </option>
-                  </select>
-                </div>
-              )}
 
               <div className="pt-2 flex justify-end gap-2">
                 <button
@@ -2210,17 +2395,22 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       )}
 
       {/* =================================================================== */}
-      {/* MODAL 2: CUSTOM DEVICE BUILDER (ANY BRAND, PORTS, ROWS, ORDER)      */}
+      {/* MODAL 2: MULTI-ZONE CUSTOM DEVICE DESIGNER (LEFT / CENTER / RIGHT)  */}
       {/* =================================================================== */}
       {showCustomBuilder && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#111827] border border-slate-700 rounded-xl max-w-lg w-full overflow-hidden shadow-2xl">
+          <div className="bg-[#111827] border border-slate-700 rounded-xl max-w-2xl w-full overflow-hidden shadow-2xl my-6">
             <div className="px-5 py-4 bg-[#0D1322] border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-blue-400" />
-                <h3 className="font-display text-sm font-bold text-white">
-                  Crear Dispositivo Personalizado a Medida
-                </h3>
+                <div>
+                  <h3 className="font-display text-sm font-bold text-white">
+                    Diseñador de Dispositivo Personalizado por Zonas
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Coloque puertos en la Izquierda, Centro o Derecha (Consola Serie, USB, Fibra PON, RJ11 Voz, RJ45, SFP+)
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -2233,60 +2423,287 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
 
             <form
               onSubmit={handleCreateCustomDevice}
-              className="p-5 space-y-3.5 text-xs"
+              className="p-5 space-y-4 text-xs"
             >
-              <div className="grid grid-cols-2 gap-3">
+              {/* Quick Hardware Archetype Presets */}
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1.5">
+                  Plantillas Rápidas de Distribución Física (clic para cargar y personalizar):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { id: 'ont', label: 'ONT / Router Fibra (PON Izq + TEL + 4 LAN Der)' },
+                    { id: 'firewall', label: 'Firewall (USB/CON Izq + WAN Cen + LAN/SFP Der)' },
+                    { id: 'switch24', label: 'Switch 24P (CON Izq + 24 GE Cen + 4 SFP+ Der)' },
+                    { id: 'switch48', label: 'Switch 48P (CON Izq + 48 GE Cen + 4 SFP+ Der)' },
+                    { id: 'pbx', label: 'Centralita VoIP (USB Izq + FXS/FXO Cen + LAN Der)' },
+                    { id: 'server', label: 'Servidor (iDRAC/USB Izq + 4 GbE Cen + 2 SFP+ Der)' }
+                  ].map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() =>
+                        applyCustomBuilderPreset(
+                          preset.id as
+                            | 'ont'
+                            | 'firewall'
+                            | 'switch24'
+                            | 'switch48'
+                            | 'pbx'
+                            | 'server'
+                        )
+                      }
+                      className="px-2.5 py-1 rounded bg-slate-800 hover:bg-blue-600 text-slate-200 hover:text-white border border-slate-700 text-[11px] transition-colors cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Nombre / Hostname en Rack
+                    Hostname / Nombre
                   </label>
                   <input
                     type="text"
                     required
                     value={customDevName}
                     onChange={(e) => setCustomDevName(e.target.value)}
-                    placeholder="Ej. SW-PLANTA-48P"
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                    placeholder="Ej. ONT-MOVISTAR-01"
+                    className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
                   />
                 </div>
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Marca y Modelo
+                    Marca (Visible en Chasis)
                   </label>
                   <input
                     type="text"
                     required
                     value={customDevBrand}
                     onChange={(e) => setCustomDevBrand(e.target.value)}
-                    placeholder="Ej. Cisco / Fortinet / Movistar"
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                    placeholder="Ej. Movistar / Fortinet / Cisco"
+                    className="w-full px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Categoría
+                    Tipo de Dispositivo
                   </label>
                   <select
                     value={customDevCategory}
                     onChange={(e) =>
                       setCustomDevCategory(e.target.value as DeviceCategory)
                     }
-                    className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
                   >
+                    <option value="ont">ONT / Fibra Operador</option>
+                    <option value="router">Router Corporativo</option>
+                    <option value="firewall">Firewall / NGFW</option>
                     <option value="switch">Switch</option>
-                    <option value="firewall">Firewall</option>
-                    <option value="router">Router / Operador</option>
                     <option value="patchpanel">Patch Panel</option>
+                    <option value="pbx">Centralita VoIP PBX</option>
+                    <option value="nvr">Grabador CCTV NVR</option>
                     <option value="server">Servidor / NAS</option>
                     <option value="ups">SAI / PDU</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Port Blocks Designer by Zone (Left, Center, Right) */}
+              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-semibold text-white text-xs">
+                      Bloques de Puertos en el Frontal del Dispositivo
+                    </span>
+                    <p className="text-[11px] text-slate-400">
+                      Elija en qué parte del equipo va cada grupo de puertos (Izquierda, Centro o Derecha), su tipo y cantidad.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCustomPortBlocks([
+                        ...customPortBlocks,
+                        {
+                          id: `blk-${Date.now()}`,
+                          labelPrefix: 'GE',
+                          type: 'rj45',
+                          count: 4,
+                          zone: 'right',
+                          rows: 1
+                        }
+                      ])
+                    }
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[11px] font-medium flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Añadir Grupo de Puertos</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-[210px] overflow-y-auto pr-1">
+                  {customPortBlocks.map((blk, idx) => (
+                    <div
+                      key={blk.id}
+                      className="grid grid-cols-12 gap-2 items-center bg-slate-950 p-2 rounded-lg border border-slate-800"
+                    >
+                      <div className="col-span-3">
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Posición en Equipo
+                        </label>
+                        <select
+                          value={blk.zone}
+                          onChange={(e) => {
+                            const next = [...customPortBlocks];
+                            next[idx] = {
+                              ...blk,
+                              zone: e.target.value as PortZone
+                            };
+                            setCustomPortBlocks(next);
+                          }}
+                          className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-white font-medium"
+                        >
+                          <option value="left">⬅ Izquierda</option>
+                          <option value="center">↔ Centro (Separado)</option>
+                          <option value="right">➡ Derecha</option>
+                        </select>
+                      </div>
+
+                      <div className="col-span-3">
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Tipo de Puerto
+                        </label>
+                        <select
+                          value={blk.type}
+                          onChange={(e) => {
+                            const t = e.target.value as PortType;
+                            const defaultPref =
+                              t === 'console'
+                                ? 'CON'
+                                : t === 'usb'
+                                ? 'USB'
+                                : t === 'pon'
+                                ? 'PON'
+                                : t === 'fxs'
+                                ? 'TEL'
+                                : t === 'sfp'
+                                ? 'SFP+'
+                                : t === 'power'
+                                ? 'IEC'
+                                : 'LAN';
+                            const next = [...customPortBlocks];
+                            next[idx] = {
+                              ...blk,
+                              type: t,
+                              labelPrefix: defaultPref
+                            };
+                            setCustomPortBlocks(next);
+                          }}
+                          className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-cyan-300"
+                        >
+                          <option value="rj45">RJ45 (LAN/WAN)</option>
+                          <option value="sfp">SFP / SFP+ Fibra</option>
+                          <option value="pon">PON Fibra (Verde)</option>
+                          <option value="console">Consola Serie</option>
+                          <option value="usb">Puerto USB</option>
+                          <option value="fxs">Teléfono RJ11 (FXS)</option>
+                          <option value="keystone">Keystone Patch</option>
+                          <option value="power">Eléctrico IEC</option>
+                        </select>
+                      </div>
+
+                      <div className="col-span-2">
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Etiqueta
+                        </label>
+                        <input
+                          type="text"
+                          value={blk.labelPrefix}
+                          onChange={(e) => {
+                            const next = [...customPortBlocks];
+                            next[idx] = { ...blk, labelPrefix: e.target.value };
+                            setCustomPortBlocks(next);
+                          }}
+                          placeholder="WAN / LAN"
+                          className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white"
+                        />
+                      </div>
+
+                      <div className="col-span-2">
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Cantidad
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={48}
+                          value={blk.count}
+                          onChange={(e) => {
+                            const next = [...customPortBlocks];
+                            next[idx] = {
+                              ...blk,
+                              count: Math.max(
+                                1,
+                                Math.min(48, Number(e.target.value) || 1)
+                              )
+                            };
+                            setCustomPortBlocks(next);
+                          }}
+                          className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white text-center"
+                        />
+                      </div>
+
+                      <div className="col-span-1">
+                        <label className="block text-[10px] text-slate-400 mb-0.5">
+                          Filas
+                        </label>
+                        <select
+                          value={blk.rows}
+                          onChange={(e) => {
+                            const next = [...customPortBlocks];
+                            next[idx] = {
+                              ...blk,
+                              rows: Number(e.target.value)
+                            };
+                            setCustomPortBlocks(next);
+                          }}
+                          className="w-full px-1 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white"
+                        >
+                          <option value={1}>1F</option>
+                          <option value={2}>2F</option>
+                          <option value={4}>4F</option>
+                        </select>
+                      </div>
+
+                      <div className="col-span-1 flex justify-end pt-4">
+                        {customPortBlocks.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomPortBlocks(
+                                customPortBlocks.filter((_, i) => i !== idx)
+                              )
+                            }
+                            className="p-1 text-slate-500 hover:text-red-400 cursor-pointer"
+                            title="Quitar bloque"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Posición U Inicial
+                    Posición U
                   </label>
                   <input
                     type="number"
@@ -2296,17 +2713,17 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                     onChange={(e) =>
                       setCustomDevUStart(Number(e.target.value) || 1)
                     }
-                    className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
                   />
                 </div>
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Altura Chasis (U)
+                    Altura (U)
                   </label>
                   <select
                     value={customDevUSize}
                     onChange={(e) => setCustomDevUSize(Number(e.target.value))}
-                    className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
                   >
                     <option value={1}>1U</option>
                     <option value={2}>2U</option>
@@ -2314,109 +2731,31 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                     <option value={4}>4U</option>
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-slate-900/90 border border-slate-800">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Puertos RJ45 / Tomas
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={96}
-                    value={customDevRj45}
-                    onChange={(e) =>
-                      setCustomDevRj45(
-                        Math.max(0, Math.min(96, Number(e.target.value) || 0))
-                      )
-                    }
-                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">
-                    Puertos SFP+ (Fibra)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={24}
-                    value={customDevSfp}
-                    onChange={(e) =>
-                      setCustomDevSfp(
-                        Math.max(0, Math.min(24, Number(e.target.value) || 0))
-                      )
-                    }
-                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">
-                    Filas de Puertos
-                  </label>
-                  <select
-                    value={customDevRows}
-                    onChange={(e) => setCustomDevRows(Number(e.target.value))}
-                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white font-mono"
-                  >
-                    <option value={1}>1 Fila</option>
-                    <option value={2}>2 Filas</option>
-                    <option value={3}>3 Filas</option>
-                    <option value={4}>4 Filas</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Orden de Numeración de Puertos
-                </label>
-                <select
-                  value={customDevNumbering}
-                  onChange={(e) =>
-                    setCustomDevNumbering(e.target.value as PortNumberingOrder)
-                  }
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                >
-                  <option value="vertical-odd-even">
-                    Vertical: 1 Arriba / 2 Abajo (Impares en Fila 1, Pares en Fila 2)
-                  </option>
-                  <option value="sequential">
-                    Horizontal Secuencial (Fila 1: 1..12, Fila 2: 13..24)
-                  </option>
-                  <option value="vertical-even-odd">
-                    Vertical Invertido: 2 Arriba / 1 Abajo
-                  </option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">
-                    Dirección IP / Gestión
+                    IP Gestión
                   </label>
                   <input
                     type="text"
                     value={customDevIp}
                     onChange={(e) => setCustomDevIp(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
                   />
                 </div>
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
-                    Consumo Eléctrico (W)
+                    Orden Numeración
                   </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={3000}
-                    value={customDevWatts}
+                  <select
+                    value={customDevNumbering}
                     onChange={(e) =>
-                      setCustomDevWatts(Number(e.target.value) || 0)
+                      setCustomDevNumbering(e.target.value as PortNumberingOrder)
                     }
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
-                  />
+                    className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                  >
+                    <option value="vertical-odd-even">1 Arriba / 2 Abajo</option>
+                    <option value="sequential">Secuencial Fila</option>
+                  </select>
                 </div>
               </div>
 
@@ -2450,7 +2789,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 </div>
               </div>
 
-              <div className="pt-3 flex justify-end gap-2 border-t border-slate-800">
+              <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowCustomBuilder(false)}
@@ -2462,7 +2801,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   type="submit"
                   className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium cursor-pointer"
                 >
-                  Instalar Dispositivo en Rack
+                  Montar Equipo Personalizado (
+                  {customPortBlocks.reduce((acc, b) => acc + b.count, 0)} Puertos)
                 </button>
               </div>
             </form>

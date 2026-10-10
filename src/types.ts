@@ -1,10 +1,52 @@
-export type DeviceCategory = 'firewall' | 'router' | 'switch' | 'patchpanel' | 'server' | 'ups';
+export type DeviceCategory =
+  | 'firewall'
+  | 'router'
+  | 'switch'
+  | 'patchpanel'
+  | 'server'
+  | 'ups'
+  | 'ont'
+  | 'pbx'
+  | 'nvr';
 
-export type PortType = 'rj45' | 'sfp' | 'keystone' | 'console' | 'power';
+export type PortType =
+  | 'rj45'
+  | 'sfp'
+  | 'keystone'
+  | 'console'
+  | 'usb'
+  | 'pon'
+  | 'fxs'
+  | 'coax'
+  | 'power';
 
-export type CableColor = 'blue' | 'yellow' | 'emerald' | 'red' | 'orange' | 'purple' | 'cyan' | 'slate';
+/**
+ * Horizontal zone on the device faceplate where a port or group of ports sits:
+ * - 'left': Left section (typical for Console, USB, Management, PON optical, or isolated WAN ports)
+ * - 'center': Main middle bank of ports (with visual gap from left and right sections)
+ * - 'right': Right section (typical for main switching matrix or SFP+ uplinks)
+ */
+export type PortZone = 'left' | 'center' | 'right';
 
-export type CableCategory = 'Cat6' | 'Cat6A' | 'Fibra OM4' | 'DAC 10G' | 'Alimentación';
+export type CableColor =
+  | 'blue'
+  | 'yellow'
+  | 'emerald'
+  | 'red'
+  | 'orange'
+  | 'purple'
+  | 'cyan'
+  | 'slate';
+
+export type CableCategory =
+  | 'Cat6'
+  | 'Cat6A'
+  | 'Fibra OM4'
+  | 'Fibra OS2 PON'
+  | 'DAC 10G'
+  | 'Consola Serial'
+  | 'Teléfono RJ11'
+  | 'Alimentación';
 
 export type UserRole = 'admin' | 'technician';
 
@@ -14,7 +56,10 @@ export type UserRole = 'admin' | 'technician';
  * - 'vertical-odd-even': Row 1 (top) has odd numbers 1, 3, 5..23; Row 2 (bottom) has even numbers 2, 4, 6..24 (1 arriba, 2 abajo)
  * - 'vertical-even-odd': Row 1 (top) has even numbers 2, 4, 6..24; Row 2 (bottom) has odd numbers 1, 3, 5..23
  */
-export type PortNumberingOrder = 'sequential' | 'vertical-odd-even' | 'vertical-even-odd';
+export type PortNumberingOrder =
+  | 'sequential'
+  | 'vertical-odd-even'
+  | 'vertical-even-odd';
 
 export interface SystemUser {
   id: string;
@@ -30,8 +75,20 @@ export interface DevicePort {
   label: string;
   type: PortType;
   row?: number; // 1-indexed row for multi-row patch panels or switches
+  zone?: PortZone; // 'left' | 'center' | 'right' placement on faceplate
+  groupId?: string; // Optional block/group identifier for visual separation between port banks
   vlan?: string;
   speed?: string;
+}
+
+export interface CustomPortBlockSpec {
+  id: string;
+  labelPrefix: string;
+  type: PortType;
+  count: number;
+  zone: PortZone;
+  rows: number;
+  numberingOrder?: PortNumberingOrder;
 }
 
 export interface RackDevice {
@@ -41,15 +98,15 @@ export interface RackDevice {
   model: string;
   category: DeviceCategory;
   uStart: number; // Bottom U position (1 to rack.totalU)
-  uSize: number;  // Height in U (1, 2, 3, 4)
+  uSize: number; // Height in U (1, 2, 3, 4)
   ipAddress: string;
   managementVlan: string;
   serialNumber: string;
   powerWatts: number;
   status: 'nominal' | 'warning' | 'alert';
   notes: string;
-  customColor?: string;                   // Hex color for device faceplate / chassis
-  portsPerRow?: number[];                 // e.g. [24] for 1-row 24p, [24, 24] for 2-row 48p
+  customColor?: string; // Hex color for device faceplate / chassis
+  portsPerRow?: number[]; // e.g. [24] for 1-row 24p, [24, 24] for 2-row 48p
   portNumberingOrder?: PortNumberingOrder; // Order of ports across rows
   ports: DevicePort[];
 }
@@ -99,6 +156,7 @@ export interface HardwareTemplate {
   sfpUplinks?: number;
   portsPerRow?: number[];
   defaultNumberingOrder?: PortNumberingOrder;
+  portBlocks?: CustomPortBlockSpec[]; // Optional realistic port blocks across left/center/right zones
   defaultColor?: string;
   powerWatts: number;
   defaultIp: string;
