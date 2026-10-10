@@ -835,7 +835,7 @@ export const CATEGORY_LABELS: Record<DeviceCategory, string> = {
  *   - `vertical-even-odd`: Row 1 (top) = 2, 4, 6.. (even), Row 2 (bottom) = 1, 3, 5.. (odd)
  */
 export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
-  const MAX_PORTS_PER_VISUAL_ROW = 12;
+  const MAX_PORTS_PER_VISUAL_ROW = 24;
   const order: PortNumberingOrder = dev.portNumberingOrder || 'sequential';
   const sortedPorts = [...dev.ports].sort((a, b) => a.number - b.number);
 
@@ -853,32 +853,44 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
     const sum = dev.portsPerRow.reduce((a, b) => a + b, 0);
     if (sum === regularPorts.length) {
       rawRowSizes = [...dev.portsPerRow];
+    } else if (sum === sortedPorts.length) {
+      // User explicitly configured total rows in the inspector (e.g., [12] or [12, 12])
+      rawRowSizes = [...dev.portsPerRow];
     }
   }
 
+  // If user configured rows covering all ports directly, use sortedPorts directly
+  const useAllPortsDirectly =
+    dev.portsPerRow &&
+    dev.portsPerRow.length > 0 &&
+    dev.portsPerRow.reduce((a, b) => a + b, 0) === sortedPorts.length &&
+    sfpUplinks.length > 0;
+
+  const basePorts = useAllPortsDirectly ? sortedPorts : regularPorts;
+  const remainingUplinks = useAllPortsDirectly ? [] : sfpUplinks;
+
   if (rawRowSizes.length === 0) {
-    if (regularPorts.length <= MAX_PORTS_PER_VISUAL_ROW) {
-      rawRowSizes = [regularPorts.length];
-    } else if (regularPorts.length <= 24) {
-      const top = Math.ceil(regularPorts.length / 2);
-      rawRowSizes = [top, regularPorts.length - top];
+    if (basePorts.length <= 16) {
+      rawRowSizes = [basePorts.length];
+    } else if (basePorts.length <= 32) {
+      const top = Math.ceil(basePorts.length / 2);
+      rawRowSizes = [top, basePorts.length - top];
     } else {
-      let rem = regularPorts.length;
+      let rem = basePorts.length;
       while (rem > 0) {
-        const take = Math.min(MAX_PORTS_PER_VISUAL_ROW, rem);
+        const take = Math.min(16, rem);
         rawRowSizes.push(take);
         rem -= take;
       }
     }
   }
 
-  // Ensure no single row exceeds MAX_PORTS_PER_VISUAL_ROW (12 ports max per row)
   const rowSizes: number[] = [];
   for (const size of rawRowSizes) {
     if (size > MAX_PORTS_PER_VISUAL_ROW) {
       let rem = size;
       while (rem > 0) {
-        const take = Math.min(MAX_PORTS_PER_VISUAL_ROW, rem);
+        const take = Math.min(12, rem);
         rowSizes.push(take);
         rem -= take;
       }
@@ -890,7 +902,7 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
   let rows: DevicePort[][] = [];
 
   if (rowSizes.length <= 1) {
-    rows = [regularPorts];
+    rows = [basePorts];
   } else if (order === 'vertical-odd-even' && rowSizes.length >= 2) {
     // Pairwise vertical: within each pair of rows (Row 1 & Row 2, Row 3 & Row 4), odd numbers on top row, even numbers on bottom row
     rows = Array.from({ length: rowSizes.length }, () => []);
@@ -898,7 +910,7 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
     for (let r = 0; r < rowSizes.length; r += 2) {
       if (r + 1 < rowSizes.length) {
         const pairTotal = rowSizes[r] + rowSizes[r + 1];
-        const pairSlice = regularPorts.slice(portCursor, portCursor + pairTotal);
+        const pairSlice = basePorts.slice(portCursor, portCursor + pairTotal);
         portCursor += pairTotal;
         pairSlice.forEach((p, idx) => {
           if (idx % 2 === 0) {
@@ -908,7 +920,7 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
           }
         });
       } else {
-        const slice = regularPorts.slice(portCursor, portCursor + rowSizes[r]);
+        const slice = basePorts.slice(portCursor, portCursor + rowSizes[r]);
         portCursor += rowSizes[r];
         rows[r].push(...slice);
       }
@@ -920,7 +932,7 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
     for (let r = 0; r < rowSizes.length; r += 2) {
       if (r + 1 < rowSizes.length) {
         const pairTotal = rowSizes[r] + rowSizes[r + 1];
-        const pairSlice = regularPorts.slice(portCursor, portCursor + pairTotal);
+        const pairSlice = basePorts.slice(portCursor, portCursor + pairTotal);
         portCursor += pairTotal;
         pairSlice.forEach((p, idx) => {
           if (idx % 2 === 1) {
@@ -930,7 +942,7 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
           }
         });
       } else {
-        const slice = regularPorts.slice(portCursor, portCursor + rowSizes[r]);
+        const slice = basePorts.slice(portCursor, portCursor + rowSizes[r]);
         portCursor += rowSizes[r];
         rows[r].push(...slice);
       }
@@ -939,25 +951,32 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
     // Sequential horizontal: Row 1 has 1..N, Row 2 has N+1..M
     let cursor = 0;
     for (const size of rowSizes) {
-      rows.push(regularPorts.slice(cursor, cursor + size));
+      rows.push(basePorts.slice(cursor, cursor + size));
       cursor += size;
     }
-    if (cursor < regularPorts.length) {
-      rows[rows.length - 1].push(...regularPorts.slice(cursor));
+    if (cursor < basePorts.length) {
+      rows[rows.length - 1].push(...basePorts.slice(cursor));
     }
   }
 
-  // Append or create dedicated row for SFP+ uplinks without exceeding MAX_PORTS_PER_VISUAL_ROW
-  if (sfpUplinks.length > 0) {
-    let remainingSfp = [...sfpUplinks];
-    for (let r = 0; r < rows.length && remainingSfp.length > 0; r++) {
-      const spaceInRow = MAX_PORTS_PER_VISUAL_ROW - rows[r].length;
-      if (spaceInRow > 0) {
-        rows[r].push(...remainingSfp.splice(0, spaceInRow));
-      }
-    }
-    while (remainingSfp.length > 0) {
-      rows.push(remainingSfp.splice(0, MAX_PORTS_PER_VISUAL_ROW));
+  // Append SFP+ uplinks: if the row has <= 12 total ports with uplinks, keep on same row; otherwise distribute across rows or add dedicated row
+  if (remainingUplinks.length > 0) {
+    if (
+      rows.length === 1 &&
+      rows[0].length + remainingUplinks.length <= 16
+    ) {
+      rows[0].push(...remainingUplinks);
+    } else if (
+      rows.length === 2 &&
+      rows[0].length <= 12 &&
+      rows[1].length <= 12 &&
+      remainingUplinks.length <= 4
+    ) {
+      const half = Math.ceil(remainingUplinks.length / 2);
+      rows[0].push(...remainingUplinks.slice(0, half));
+      rows[1].push(...remainingUplinks.slice(half));
+    } else {
+      rows.push(remainingUplinks);
     }
   }
 

@@ -1243,34 +1243,34 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         )}
                       </div>
 
-                      {/* Device Chassis Faceplate: Compact Brand + Device Type on Left, Ports on Right */}
-                      <div className="flex-1 px-2.5 py-1.5 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
+                      {/* Device Chassis Faceplate: Compact Brand + Device Type on Left, Non-Wrapping Port Rows on Right */}
+                      <div className="flex-1 px-2 py-1.5 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
                         {/* Minimal Left Badge: Only Brand & Device Type */}
                         <div
-                          className="flex items-center gap-1.5 shrink-0 max-w-[130px]"
+                          className="flex items-center gap-1 shrink-0 w-[92px]"
                           title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
                         >
-                          <GripVertical className="w-3.5 h-3.5 text-slate-400 cursor-grab shrink-0" />
+                          <GripVertical className="w-3 h-3 text-slate-400 cursor-grab shrink-0" />
                           <div className="min-w-0 leading-tight">
-                            <div className="font-mono text-[11px] font-bold text-white truncate">
+                            <div className="font-mono text-[10px] font-bold text-white truncate">
                               {shortBrand}
                             </div>
-                            <div className="text-[9px] font-mono uppercase tracking-wider text-slate-300/90 truncate">
+                            <div className="text-[8px] font-mono uppercase tracking-wider text-slate-300/90 truncate">
                               {CATEGORY_LABELS[dev.category]}
                             </div>
                           </div>
                         </div>
 
-                        {/* Physical Port Matrix — Contained strictly inside the rack */}
+                        {/* Physical Port Matrix — Each configured row is strictly 1 single line (flex-nowrap) */}
                         <div className="flex-1 flex flex-col gap-1 items-end justify-center z-30 min-w-0">
                           {portRows.map((rowPorts, rIndex) => (
                             <div
                               key={`row-${dev.id}-${rIndex}`}
-                              className="flex flex-wrap items-center gap-1 justify-end max-w-full"
+                              className="flex flex-nowrap items-center gap-[3px] justify-end w-full"
                             >
                               {portRows.length > 1 && (
-                                <span className="text-[9px] font-mono text-slate-400 mr-0.5 shrink-0">
-                                  F{rIndex + 1}:
+                                <span className="text-[8px] font-mono text-slate-400 mr-0.5 shrink-0">
+                                  F{rIndex + 1}
                                 </span>
                               )}
                               {rowPorts.map((port) => {
@@ -1282,6 +1282,13 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                   ? COLOR_HEX_MAP[connCable.color]
                                   : undefined;
 
+                                // Detect if user gave this port a custom name different from default GE01/P01/PORT01/eno01/SFP+1
+                                const isDefaultLabel =
+                                  /^(GE|P|PORT|eno|SFP\+)\d+$/i.test(port.label);
+                                const customPortName = !isDefaultLabel
+                                  ? port.label
+                                  : null;
+
                                 return (
                                   <button
                                     key={port.id}
@@ -1289,6 +1296,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                       portRefs.current[port.id] = el;
                                     }}
                                     type="button"
+                                    title={`Puerto #${port.number} (${port.label})`}
                                     onMouseEnter={() => {
                                       if (connCable) {
                                         setHoveredCableId(connCable.id);
@@ -1305,15 +1313,15 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                           (p) => p.id === connCable.toPortId
                                         );
                                         setHoverInfo({
-                                          text: `${connCable.label}: [U${fromD?.uStart}] ${fromD?.name} (${fromP?.label}) ⟷ [U${toD?.uStart}] ${toD?.name} (${toP?.label})`,
+                                          text: `${connCable.label}: [U${fromD?.uStart}] ${fromD?.name} (${fromP?.label} #${fromP?.number}) ⟷ [U${toD?.uStart}] ${toD?.name} (${toP?.label} #${toP?.number})`,
                                           subtext: `${connCable.category} · ${connCable.vlan} · ${connCable.lengthMeters}m`,
                                           colorHex: COLOR_HEX_MAP[connCable.color]
                                         });
                                       } else {
                                         setHoveredCableId(null);
                                         setHoverInfo({
-                                          text: `Puerto Libre: [U${dev.uStart}] ${dev.name} — Puerto ${port.label} (#${port.number})`,
-                                          subtext: `clic para tirar latiguillo (${port.type.toUpperCase()})`
+                                          text: `Puerto #${port.number} [${port.label}] — [U${dev.uStart}] ${dev.name}`,
+                                          subtext: `Libre · clic para tirar latiguillo (${port.type.toUpperCase()})`
                                         });
                                       }
                                     }}
@@ -1332,7 +1340,13 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                           }
                                         : undefined
                                     }
-                                    className={`h-[19px] w-[21px] rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 ${
+                                    className={`h-[19px] ${
+                                      rowPorts.length > 16
+                                        ? 'flex-1 min-w-[14px] max-w-[20px] text-[8px]'
+                                        : customPortName
+                                        ? 'min-w-[22px] max-w-[46px] px-1 text-[8px]'
+                                        : 'w-[22px] text-[9px]'
+                                    } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 truncate ${
                                       isPending || isHoveredCablePort
                                         ? 'bg-amber-500 text-slate-950 border-white ring-2 ring-amber-300 z-40'
                                         : connCable
@@ -1344,7 +1358,9 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                         : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-blue-400 hover:bg-slate-800'
                                     }`}
                                   >
-                                    {port.number.toString().padStart(2, '0')}
+                                    {customPortName
+                                      ? customPortName.substring(0, 5)
+                                      : port.number.toString().padStart(2, '0')}
                                   </button>
                                 );
                               })}
@@ -1500,7 +1516,6 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   value={selectedDevice.portNumberingOrder || 'sequential'}
                   onChange={(e) => {
                     const nextOrder = e.target.value as PortNumberingOrder;
-                    // If user chooses vertical numbering on a single-row device with >= 4 ports, split into 2 rows automatically
                     let nextRows = selectedDevice.portsPerRow;
                     const regCount = selectedDevice.ports.filter(
                       (p) =>
@@ -1640,12 +1655,12 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         <input
                           type="number"
                           min={1}
-                          max={48}
+                          max={24}
                           value={pts}
                           onChange={(e) => {
                             const val = Math.max(
                               1,
-                              Math.min(48, Number(e.target.value) || 1)
+                              Math.min(24, Number(e.target.value) || 1)
                             );
                             const nextRows = [...arr];
                             nextRows[idx] = val;
@@ -1673,6 +1688,57 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                           </button>
                         )}
                       </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Port Names / Labels Editor */}
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-200">
+                    Nombrar Puertos ({selectedDevice.ports.length})
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Ej: WAN1, Despacho, AP-01...
+                  </span>
+                </div>
+                <div className="max-h-[165px] overflow-y-auto space-y-1.5 pr-1">
+                  {selectedDevice.ports.map((p) => (
+                    <div
+                      key={`rename-port-${p.id}`}
+                      className="flex items-center gap-2 bg-slate-950/80 px-2 py-1 rounded border border-slate-800/80"
+                    >
+                      <span className="font-mono text-[10px] text-slate-400 w-9 shrink-0">
+                        #{p.number.toString().padStart(2, '0')}
+                      </span>
+                      <input
+                        type="text"
+                        value={p.label}
+                        onChange={(e) => {
+                          const newLabel = e.target.value;
+                          onUpdateRack({
+                            ...rack,
+                            devices: rack.devices.map((d) =>
+                              d.id === selectedDevice.id
+                                ? {
+                                    ...d,
+                                    ports: d.ports.map((portItem) =>
+                                      portItem.id === p.id
+                                        ? { ...portItem, label: newLabel }
+                                        : portItem
+                                    )
+                                  }
+                                : d
+                            )
+                          });
+                        }}
+                        placeholder={`P${p.number.toString().padStart(2, '0')}`}
+                        className="flex-1 px-2 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] font-mono text-white focus:outline-none focus:border-blue-500"
+                      />
+                      <span className="font-mono text-[9px] text-slate-500 uppercase shrink-0">
+                        {p.type}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1823,7 +1889,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             </div>
           ) : (
             <p className="text-xs text-slate-400 py-4 text-center">
-              Seleccione cualquier dispositivo en el rack para organizar sus puertos (1 arriba / 2 abajo), cambiar su color o agregar filas.
+              Seleccione cualquier dispositivo en el rack para organizar sus puertos (1 arriba / 2 abajo), nombrar puertos, cambiar su color o agregar filas.
             </p>
           )}
         </div>

@@ -513,12 +513,12 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                             </div>
                           </div>
 
-                          {/* Multi-Row Organized Ports */}
+                          {/* Multi-Row Organized Ports — Each row is strictly 1 single line (flex-nowrap) */}
                           <div className="flex-1 flex flex-col gap-1.5 items-end justify-center z-30 min-w-0">
                             {portRows.map((rowPorts, rIndex) => (
                               <div
                                 key={`consulta-row-${dev.id}-${rIndex}`}
-                                className="flex flex-wrap items-center gap-1 justify-end max-w-full"
+                                className="flex flex-nowrap items-center gap-1 justify-end w-full"
                               >
                                 {portRows.length > 1 && (
                                   <span className="text-[9px] font-mono text-slate-400 mr-1 shrink-0">
@@ -535,6 +535,14 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                                     ? COLOR_HEX_MAP[connCable.color]
                                     : undefined;
 
+                                  const isDefaultLabel =
+                                    /^(GE|P|PORT|eno|SFP\+)\d+$/i.test(
+                                      port.label
+                                    );
+                                  const customPortName = !isDefaultLabel
+                                    ? port.label
+                                    : null;
+
                                   return (
                                     <button
                                       key={port.id}
@@ -542,6 +550,7 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                                         portRefs.current[port.id] = el;
                                       }}
                                       type="button"
+                                      title={`Puerto #${port.number} (${port.label})`}
                                       onMouseEnter={() => {
                                         if (connCable) {
                                           setHoveredCableId(connCable.id);
@@ -575,7 +584,13 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                                             }
                                           : undefined
                                       }
-                                      className={`h-5 w-[22px] rounded-[3px] font-mono text-[9px] font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 ${
+                                      className={`h-5 ${
+                                        rowPorts.length > 16
+                                          ? 'flex-1 min-w-[15px] max-w-[22px] text-[8px]'
+                                          : customPortName
+                                          ? 'min-w-[22px] max-w-[50px] px-1 text-[8px]'
+                                          : 'w-[22px] text-[9px]'
+                                      } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 truncate ${
                                         isPortActive
                                           ? 'ring-2 ring-amber-300 z-40 shadow-lg text-white brightness-125'
                                           : connCable
@@ -585,7 +600,9 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                                           : 'bg-slate-900/80 text-slate-500 border-slate-800 hover:text-slate-300'
                                       }`}
                                     >
-                                      {port.number.toString().padStart(2, '0')}
+                                      {customPortName
+                                        ? customPortName.substring(0, 5)
+                                        : port.number.toString().padStart(2, '0')}
                                     </button>
                                   );
                                 })}
