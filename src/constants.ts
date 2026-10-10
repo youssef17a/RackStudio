@@ -1372,3 +1372,78 @@ export function createDeviceFromTemplate(
     ports
   };
 }
+
+/**
+ * Computes default 2D coordinates (`xPercent`, `yPercent`) for all ports on a device
+ * so they can be graphically dragged anywhere with the mouse on the chassis faceplate.
+ */
+export function ensureDevicePortCoordinates(dev: RackDevice): DevicePort[] {
+  const { leftRows, centerRows, rightRows, maxRows } = getOrganizedDeviceZones(dev);
+  const coordMap: Record<string, { xPercent: number; yPercent: number }> = {};
+
+  const assignZoneCoords = (
+    rows: DevicePort[][],
+    xStart: number,
+    xEnd: number
+  ) => {
+    const totalRows = Math.max(1, rows.length);
+    rows.forEach((rowPorts, rIdx) => {
+      const yPct =
+        totalRows === 1
+          ? 50
+          : Number((22 + (rIdx / (totalRows - 1)) * 56).toFixed(1));
+      const count = rowPorts.length;
+      rowPorts.forEach((p, cIdx) => {
+        const span = xEnd - xStart;
+        const step = count <= 1 ? 0 : Math.min(4.2, span / Math.max(1, count));
+        const xPct = Number((xStart + cIdx * step).toFixed(1));
+        coordMap[p.id] = {
+          xPercent: Math.max(2, Math.min(97, xPct)),
+          yPercent: Math.max(14, Math.min(86, yPct))
+        };
+      });
+    });
+  };
+
+  assignZoneCoords(leftRows, 3, 25);
+  assignZoneCoords(centerRows, 29, 64);
+
+  // For right zone, align toward the right side of the faceplate
+  const totalRightRows = Math.max(1, rightRows.length);
+  rightRows.forEach((rowPorts, rIdx) => {
+    const yPct =
+      totalRightRows === 1
+        ? 50
+        : Number((22 + (rIdx / (totalRightRows - 1)) * 56).toFixed(1));
+    const count = rowPorts.length;
+    const step = count > 16 ? 3.2 : count > 10 ? 3.8 : 4.4;
+    const totalWidth = (count - 1) * step;
+    const startX = Math.max(
+      leftRows.length > 0 || centerRows.length > 0 ? 32 : 6,
+      95 - totalWidth
+    );
+    rowPorts.forEach((p, cIdx) => {
+      coordMap[p.id] = {
+        xPercent: Number(Math.max(2, Math.min(97, startX + cIdx * step)).toFixed(1)),
+        yPercent: Math.max(14, Math.min(86, yPct))
+      };
+    });
+  });
+
+  // Fallback for any port not in rows
+  return dev.ports.map((p, idx) => {
+    if (typeof p.xPercent === 'number' && typeof p.yPercent === 'number') {
+      return p;
+    }
+    const fallback = coordMap[p.id] || {
+      xPercent: Math.min(95, 8 + idx * 4.5),
+      yPercent: maxRows > 1 && idx % 2 === 1 ? 72 : 50
+    };
+    return {
+      ...p,
+      xPercent: fallback.xPercent,
+      yPercent: fallback.yPercent
+    };
+  });
+}
+

@@ -76,6 +76,8 @@ export interface DevicePort {
   type: PortType;
   row?: number; // 1-indexed row for multi-row patch panels or switches
   zone?: PortZone; // 'left' | 'center' | 'right' placement on faceplate
+  xPercent?: number; // Optional freeform horizontal position (0% to 100%) on the device faceplate
+  yPercent?: number; // Optional freeform vertical position (0% to 100%) on the device faceplate
   groupId?: string; // Optional block/group identifier for visual separation between port banks
   vlan?: string;
   speed?: string;

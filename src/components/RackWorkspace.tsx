@@ -17,7 +17,8 @@ import {
   Sliders,
   Palette,
   Layers,
-  ArrowUpDown
+  ArrowUpDown,
+  Move
 } from 'lucide-react';
 import {
   CompanyProject,
@@ -41,7 +42,8 @@ import {
   PORT_TYPE_META,
   createDeviceFromTemplate,
   createDeviceFromPortBlocks,
-  getOrganizedDeviceZones
+  getOrganizedDeviceZones,
+  ensureDevicePortCoordinates
 } from '../constants';
 
 interface RackWorkspaceProps {
@@ -115,6 +117,19 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const [hoverInfo, setHoverInfo] = useState<HoverCableOrPortInfo | null>(null);
   const [showCablesOverlay, setShowCablesOverlay] = useState<boolean>(true);
   const [cableFilterColor, setCableFilterColor] = useState<CableColor | 'all'>('all');
+
+  // Graphical Freeform Port Dragging Mode (Directly inside Rack + Custom Builder)
+  const [graphicalPortMoveMode, setGraphicalPortMoveMode] = useState<boolean>(false);
+  const [draggingRackPort, setDraggingRackPort] = useState<{
+    deviceId: string;
+    portId: string;
+  } | null>(null);
+  const faceplateCanvasRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Custom Device Builder Graphical Canvas State
+  const [customPreviewPorts, setCustomPreviewPorts] = useState<DevicePort[]>([]);
+  const [draggingCustomPortId, setDraggingCustomPortId] = useState<string | null>(null);
+  const customCanvasRef = useRef<HTMLDivElement | null>(null);
 
   // Interactive Cable Patching Mode
   const [activeCableColor, setActiveCableColor] = useState<CableColor>('blue');
@@ -321,22 +336,11 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     handleInstallTemplateAtU(template, targetU);
   };
 
-  const handleCreateCustomDevice = (e: React.FormEvent) => {
-    e.preventDefault();
-    let targetU = customDevUStart;
-    if (!isURangeAvailable(targetU, customDevUSize, null)) {
-      const fallbackU = findFirstAvailableUFromTop(customDevUSize);
-      if (fallbackU === null) {
-        showNotice(`No hay ${customDevUSize}U libres en el armario.`);
-        return;
-      }
-      targetU = fallbackU;
-    }
-
-    const devId = `dev-custom-${Date.now()}`;
+  // Synchronize customPreviewPorts whenever customPortBlocks or customDevNumbering changes
+  useEffect(() => {
     const validBlocks = customPortBlocks.filter((b) => b.count > 0);
-    const { ports } = createDeviceFromPortBlocks(
-      devId,
+    const { ports: rawPorts } = createDeviceFromPortBlocks(
+      'preview-dev',
       validBlocks.length > 0
         ? validBlocks
         : [
@@ -351,6 +355,151 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           ]
     );
 
+    const mockDev: RackDevice = {
+      id: 'preview-dev',
+      templateId: 'preview',
+      name: customDevName,
+      model: customDevBrand,
+      category: customDevCategory,
+      uStart: customDevUStart,
+      uSize: customDevUSize,
+      ipAddress: customDevIp,
+      managementVlan: 'VLAN 10',
+      serialNumber: 'SN-PREV',
+      powerWatts: customDevWatts,
+      status: 'nominal',
+      notes: '',
+      portNumberingOrder: customDevNumbering,
+      ports: rawPorts
+    };
+
+    const computed = ensureDevicePortCoordinates(mockDev);
+    setCustomPreviewPorts(computed);
+  }, [customPortBlocks, customDevNumbering]);
+
+  // Global mousemove / mouseup listeners for smooth graphical port dragging inside Rack or Custom Designer
+  useEffect(() => {
+    if (!draggingRackPort && !draggingCustomPortId) return;
+
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (draggingRackPort) {
+        const container = faceplateCanvasRefs.current[draggingRackPort.deviceId];
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        const rawX = ((e.clientX - rect.left) / rect.width) * 100;
+        const rawY = ((e.clientY - rect.top) / rect.height) * 100;
+        const clampedX = Number(Math.max(2, Math.min(97, rawX)).toFixed(1));
+        const clampedY = Number(Math.max(16, Math.min(84, rawY)).toFixed(1));
+        const newZone: PortZone =
+          clampedX < 28 ? 'left' : clampedX < 64 ? 'center' : 'right';
+
+        const targetDev = rack.devices.find(
+          (d) => d.id === draggingRackPort.deviceId
+        );
+        if (!targetDev) return;
+
+        const initializedPorts = ensureDevicePortCoordinates(targetDev);
+        const updatedPorts = initializedPorts.map((p) =>
+          p.id === draggingRackPort.portId
+            ? {
+                ...p,
+                xPercent: clampedX,
+                yPercent: clampedY,
+                zone: newZone
+              }
+            : p
+        );
+
+        onUpdateRack({
+          ...rack,
+          devices: rack.devices.map((d) =>
+            d.id === draggingRackPort.deviceId
+              ? { ...d, ports: updatedPorts }
+              : d
+          )
+        });
+      } else if (draggingCustomPortId && customCanvasRef.current) {
+        const rect = customCanvasRef.current.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        const rawX = ((e.clientX - rect.left) / rect.width) * 100;
+        const rawY = ((e.clientY - rect.top) / rect.height) * 100;
+        const clampedX = Number(Math.max(2, Math.min(97, rawX)).toFixed(1));
+        const clampedY = Number(Math.max(16, Math.min(84, rawY)).toFixed(1));
+        const newZone: PortZone =
+          clampedX < 28 ? 'left' : clampedX < 64 ? 'center' : 'right';
+
+        setCustomPreviewPorts((prev) =>
+          prev.map((p) =>
+            p.id === draggingCustomPortId
+              ? {
+                  ...p,
+                  xPercent: clampedX,
+                  yPercent: clampedY,
+                  zone: newZone
+                }
+              : p
+          )
+        );
+      }
+    };
+
+    const handleGlobalMouseUp = () => {
+      if (draggingRackPort) {
+        setDraggingRackPort(null);
+        setTimeout(recalculateCableCoordinates, 20);
+      }
+      if (draggingCustomPortId) {
+        setDraggingCustomPortId(null);
+      }
+    };
+
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [draggingRackPort, draggingCustomPortId, rack]);
+
+  const handleResetDevicePortCoordinates = (deviceId: string) => {
+    const targetDev = rack.devices.find((d) => d.id === deviceId);
+    if (!targetDev) return;
+    const resetPorts = targetDev.ports.map((p) => ({
+      ...p,
+      xPercent: undefined,
+      yPercent: undefined
+    }));
+    onUpdateRack({
+      ...rack,
+      devices: rack.devices.map((d) =>
+        d.id === deviceId ? { ...d, ports: resetPorts } : d
+      )
+    });
+    showNotice(`Restaurada alineación automática de puertos en ${targetDev.name}`);
+  };
+
+  const handleCreateCustomDevice = (e: React.FormEvent) => {
+    e.preventDefault();
+    let targetU = customDevUStart;
+    if (!isURangeAvailable(targetU, customDevUSize, null)) {
+      const fallbackU = findFirstAvailableUFromTop(customDevUSize);
+      if (fallbackU === null) {
+        showNotice(`No hay ${customDevUSize}U libres en el armario.`);
+        return;
+      }
+      targetU = fallbackU;
+    }
+
+    const devId = `dev-custom-${Date.now()}`;
+    const finalPorts: DevicePort[] = customPreviewPorts.map((p, idx) => ({
+      ...p,
+      id: `${devId}-p${idx + 1}`,
+      number: idx + 1
+    }));
+
     const customDevice: RackDevice = {
       id: devId,
       templateId: 'custom-user-device',
@@ -364,10 +513,10 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       serialNumber: `SN-CUST-${Math.floor(100000 + Math.random() * 900000)}`,
       powerWatts: customDevWatts,
       status: 'nominal',
-      notes: `Dispositivo personalizado con ${ports.length} puertos distribuidos en zonas.`,
+      notes: `Dispositivo personalizado con ${finalPorts.length} puertos posicionados gráficamente.`,
       customColor: customDevColor,
       portNumberingOrder: customDevNumbering,
-      ports
+      ports: finalPorts
     };
 
     onUpdateRack({
@@ -377,7 +526,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     setSelectedDeviceId(customDevice.id);
     setShowCustomBuilder(false);
     showNotice(
-      `Creado equipo personalizado "${customDevice.name}" (${ports.length} puertos) en U${targetU}`
+      `Creado equipo personalizado "${customDevice.name}" (${finalPorts.length} puertos) en U${targetU}`
     );
   };
 
@@ -816,10 +965,18 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
 
   // Helper to render a single port button with distinct styling per port type (PON, USB, Console, SFP+, FXS, RJ45, Power)
-  const renderPortButton = (dev: RackDevice, port: DevicePort, rowLen: number) => {
+  const renderPortButton = (
+    dev: RackDevice,
+    port: DevicePort,
+    rowLen: number,
+    isFreeformPositioned?: boolean
+  ) => {
     const connCable = getCableForPort(port.id);
     const isPending = pendingPort?.portId === port.id;
     const isHoveredCablePort = connCable && hoveredCableId === connCable.id;
+    const isBeingDragged =
+      draggingRackPort?.deviceId === dev.id &&
+      draggingRackPort?.portId === port.id;
     const portColorHex = connCable ? COLOR_HEX_MAP[connCable.color] : undefined;
 
     const isDefaultNumeric = /^(GE|P|PORT|eno)\d+$/i.test(port.label);
@@ -851,6 +1008,22 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
         ? 'bg-slate-950 text-slate-300 border-slate-700 hover:border-blue-400 hover:bg-slate-800'
         : 'bg-slate-900 text-slate-200 border-slate-700 hover:border-blue-400 hover:bg-slate-800';
 
+    const inlineStyle: React.CSSProperties = {};
+    if (connCable) {
+      inlineStyle.backgroundColor = portColorHex;
+      inlineStyle.borderColor = '#ffffff';
+    }
+    if (
+      isFreeformPositioned &&
+      typeof port.xPercent === 'number' &&
+      typeof port.yPercent === 'number'
+    ) {
+      inlineStyle.position = 'absolute';
+      inlineStyle.left = `${port.xPercent}%`;
+      inlineStyle.top = `${port.yPercent}%`;
+      inlineStyle.transform = 'translate(-50%, -50%)';
+    }
+
     return (
       <button
         key={port.id}
@@ -858,8 +1031,31 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           portRefs.current[port.id] = el;
         }}
         type="button"
-        title={`Puerto #${port.number} [${port.label}] — ${PORT_TYPE_META[port.type]?.label || port.type}`}
+        title={
+          graphicalPortMoveMode
+            ? `Arrastre con el ratón para mover el puerto #${port.number} [${port.label}] a cualquier parte del chasis`
+            : `Puerto #${port.number} [${port.label}] — ${
+                PORT_TYPE_META[port.type]?.label || port.type
+              }`
+        }
+        onMouseDown={(e) => {
+          if (graphicalPortMoveMode) {
+            e.stopPropagation();
+            e.preventDefault();
+            setSelectedDeviceId(dev.id);
+            setDraggingRackPort({ deviceId: dev.id, portId: port.id });
+          }
+        }}
         onMouseEnter={() => {
+          if (graphicalPortMoveMode) {
+            setHoverInfo({
+              text: `MODO MOVER PUERTO: Mantenga pulsado el botón izquierdo y mueva el cursor para colocar [${port.label} #${port.number}] donde quiera`,
+              subtext: `Posición actual: X=${port.xPercent ?? '--'}% · Y=${
+                port.yPercent ?? '--'
+              }%`
+            });
+            return;
+          }
           if (connCable) {
             setHoveredCableId(connCable.id);
             const fromD = rack.devices.find((d) => d.id === connCable.fromDeviceId);
@@ -874,7 +1070,9 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           } else {
             setHoveredCableId(null);
             setHoverInfo({
-              text: `Puerto #${port.number} [${port.label}] (${PORT_TYPE_META[port.type]?.shortTag || port.type.toUpperCase()}) — [U${dev.uStart}] ${dev.name}`,
+              text: `Puerto #${port.number} [${port.label}] (${
+                PORT_TYPE_META[port.type]?.shortTag || port.type.toUpperCase()
+              }) — [U${dev.uStart}] ${dev.name}`,
               subtext: `Libre · clic para conectar cable`
             });
           }
@@ -883,23 +1081,28 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           setHoveredCableId(null);
           setHoverInfo(null);
         }}
-        onClick={(e) => handlePortClick(e, dev, port.id, port.label)}
-        style={
-          connCable
-            ? {
-                backgroundColor: portColorHex,
-                borderColor: '#ffffff'
-              }
-            : undefined
-        }
+        onClick={(e) => {
+          if (graphicalPortMoveMode) {
+            e.stopPropagation();
+            return;
+          }
+          handlePortClick(e, dev, port.id, port.label);
+        }}
+        style={inlineStyle}
         className={`h-[19px] ${
           rowLen > 16
             ? 'w-[17px] text-[8px]'
             : showShortText
             ? 'min-w-[22px] px-1 text-[8px]'
             : 'w-[21px] text-[9px]'
-        } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 truncate ${
-          isPending || isHoveredCablePort
+        } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors ${
+          graphicalPortMoveMode
+            ? 'cursor-grab active:cursor-grabbing ring-1 ring-amber-400/80'
+            : 'cursor-pointer'
+        } tabular-nums shrink-0 truncate ${
+          isBeingDragged
+            ? 'bg-amber-400 text-slate-950 border-white ring-2 ring-white z-50 shadow-xl'
+            : isPending || isHoveredCablePort
             ? 'bg-amber-500 text-slate-950 border-white ring-2 ring-amber-300 z-40'
             : connCable
             ? 'text-white shadow-sm hover:brightness-125'
@@ -1122,7 +1325,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       {/* =================================================================== */}
       <div className="xl:col-span-6 space-y-4">
         {/* Rack Telemetry & Quick Action Strip */}
-        <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
               <h2 className="font-display text-base font-bold text-white">
@@ -1152,7 +1355,34 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Graphical Port Drag Mode Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !graphicalPortMoveMode;
+                setGraphicalPortMoveMode(next);
+                setPendingPort(null);
+                showNotice(
+                  next
+                    ? 'Modo Mover Puertos con el Ratón ACTIVADO: Arrastre cualquier puerto sobre su dispositivo para colocarlo donde quiera.'
+                    : 'Modo Mover Puertos desactivado (Modo conexión de latiguillos activo).'
+                );
+              }}
+              className={`px-3 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                graphicalPortMoveMode
+                  ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-lg ring-2 ring-amber-400/50'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-500/40'
+              }`}
+            >
+              <Move className="w-3.5 h-3.5" />
+              <span>
+                {graphicalPortMoveMode
+                  ? 'Moviendo Puertos con el Cursor (Activo)'
+                  : 'Mover Puertos con el Ratón'}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -1171,14 +1401,30 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               <FileDown className="w-4 h-4" />
-              <span>Exportar Plano PDF</span>
+              <span>Exportar PDF</span>
             </button>
           </div>
         </div>
 
         {/* Fixed-Height Status & Live Hover HUD Strip (Never shifts rack vertically on hover) */}
         <div className="min-h-[44px] flex items-center">
-          {pendingPort ? (
+          {graphicalPortMoveMode ? (
+            <div className="w-full p-2.5 px-3.5 rounded-xl bg-amber-950/90 border border-amber-500/90 flex items-center justify-between gap-3">
+              <div className="text-xs text-amber-100 flex items-center gap-2 min-w-0">
+                <Move className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate">
+                  <strong>MODO EDICIÓN GRÁFICA DE PUERTOS:</strong> Pinche y arrastre con el cursor cualquier puerto para moverlo libremente por el frontal del equipo (Izquierda, Centro, Derecha, Arriba o Abajo).
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGraphicalPortMoveMode(false)}
+                className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <span>Terminar de Mover</span>
+              </button>
+            </div>
+          ) : pendingPort ? (
             <div className="w-full p-2.5 px-3.5 rounded-xl bg-blue-950/95 border border-blue-500/80 flex items-center justify-between gap-3">
               <div className="text-xs text-blue-100 flex items-center gap-2 min-w-0">
                 <Cable className="w-4 h-4 text-blue-400 shrink-0" />
@@ -1361,6 +1607,17 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   const { leftRows, centerRows, rightRows, maxRows } =
                     getOrganizedDeviceZones(dev);
 
+                  const hasFreeformCoords = dev.ports.some(
+                    (p) =>
+                      typeof p.xPercent === 'number' &&
+                      typeof p.yPercent === 'number'
+                  );
+                  const useFreeformCanvas =
+                    graphicalPortMoveMode || hasFreeformCoords;
+                  const positionedPorts = useFreeformCanvas
+                    ? ensureDevicePortCoordinates(dev)
+                    : dev.ports;
+
                   const rowHeightPx = Math.max(
                     dev.uSize * 38,
                     maxRows * 24 + 14
@@ -1389,8 +1646,12 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   return (
                     <div
                       key={`u-dev-${dev.id}`}
-                      draggable
+                      draggable={!graphicalPortMoveMode}
                       onDragStart={(e) => {
+                        if (graphicalPortMoveMode) {
+                          e.preventDefault();
+                          return;
+                        }
                         setDraggedDeviceId(dev.id);
                         setDraggedTemplate(null);
                         e.dataTransfer.setData('text/plain', dev.id);
@@ -1423,8 +1684,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         )}
                       </div>
 
-                      {/* Device Chassis Faceplate: Brand + Type Badge + 3 Realistic Zones (Left / Center / Right) */}
-                      <div className="flex-1 px-2 py-1.5 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
+                      {/* Device Chassis Faceplate: Brand + Type Badge + Graphical Port Area */}
+                      <div className="flex-1 px-2 py-1.5 flex items-stretch justify-between gap-2 min-w-0 overflow-hidden">
                         {/* Minimal Brand & Type Badge */}
                         <div
                           className="flex items-center gap-1 shrink-0 w-[86px]"
@@ -1441,69 +1702,104 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                           </div>
                         </div>
 
-                        {/* 3-Zone Physical Faceplate Container (Left Auxiliary, Center Main Bank, Right Uplinks/LAN) */}
-                        <div className="flex-1 flex items-center justify-between gap-2 z-30 min-w-0">
-                          {/* ZONE 1: LEFT PORTS (Console, USB, PON, Mgmt, etc.) */}
-                          {leftRows.length > 0 ? (
-                            <div className="flex flex-col gap-1 items-start justify-center shrink-0 pr-1.5 border-r border-slate-700/60">
-                              {leftRows.map((rPorts, rIdx) => (
-                                <div
-                                  key={`zleft-${dev.id}-${rIdx}`}
-                                  className="flex flex-nowrap items-center gap-[3px]"
-                                >
-                                  {rPorts.map((p) =>
-                                    renderPortButton(dev, p, rPorts.length)
-                                  )}
+                        {/* Interactive Port Canvas: Either 2D Freeform Dragging Canvas OR 3-Zone Auto Layout */}
+                        <div
+                          ref={(el) => {
+                            faceplateCanvasRefs.current[dev.id] = el;
+                          }}
+                          className={`flex-1 relative z-30 min-w-0 ${
+                            useFreeformCanvas
+                              ? 'min-h-[30px]'
+                              : 'flex items-center justify-between gap-2'
+                          } ${
+                            graphicalPortMoveMode
+                              ? 'bg-slate-950/45 border border-dashed border-amber-400/60 rounded'
+                              : ''
+                          }`}
+                        >
+                          {useFreeformCanvas ? (
+                            <>
+                              {graphicalPortMoveMode && (
+                                <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-2 text-[8px] font-mono uppercase text-amber-300/30 select-none">
+                                  <span>⬅ Izquierda</span>
+                                  <span>Centro</span>
+                                  <span>Derecha ➡</span>
                                 </div>
-                              ))}
-                            </div>
+                              )}
+                              {positionedPorts.map((p) =>
+                                renderPortButton(
+                                  dev,
+                                  p,
+                                  positionedPorts.length > 24 ? 20 : 10,
+                                  true
+                                )
+                              )}
+                            </>
                           ) : (
-                            <div />
-                          )}
-
-                          {/* ZONE 2: CENTER PORTS (Separated Main Switch Bank / WAN / FXS) */}
-                          {centerRows.length > 0 && (
-                            <div className="flex flex-col gap-1 items-center justify-center shrink-0 px-1">
-                              {centerRows.map((rPorts, rIdx) => (
-                                <div
-                                  key={`zcenter-${dev.id}-${rIdx}`}
-                                  className="flex flex-nowrap items-center gap-[3px]"
-                                >
-                                  {rPorts.map((p) =>
-                                    renderPortButton(dev, p, rPorts.length)
-                                  )}
+                            <>
+                              {/* ZONE 1: LEFT PORTS (Console, USB, PON, Mgmt, etc.) */}
+                              {leftRows.length > 0 ? (
+                                <div className="flex flex-col gap-1 items-start justify-center shrink-0 pr-1.5 border-r border-slate-700/60">
+                                  {leftRows.map((rPorts, rIdx) => (
+                                    <div
+                                      key={`zleft-${dev.id}-${rIdx}`}
+                                      className="flex flex-nowrap items-center gap-[3px]"
+                                    >
+                                      {rPorts.map((p) =>
+                                        renderPortButton(dev, p, rPorts.length)
+                                      )}
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          )}
+                              ) : (
+                                <div />
+                              )}
 
-                          {/* ZONE 3: RIGHT PORTS (LAN Ports / SFP+ Uplinks / Patch Panel Row) */}
-                          {rightRows.length > 0 && (
-                            <div
-                              className={`flex flex-col gap-1 items-end justify-center shrink-0 ${
-                                centerRows.length > 0
-                                  ? 'pl-1.5 border-l border-slate-700/60'
-                                  : ''
-                              }`}
-                            >
-                              {rightRows.map((rPorts, rIdx) => (
-                                <div
-                                  key={`zright-${dev.id}-${rIdx}`}
-                                  className="flex flex-nowrap items-center gap-[3px] justify-end"
-                                >
-                                  {rightRows.length > 1 &&
-                                    leftRows.length === 0 &&
-                                    centerRows.length === 0 && (
-                                      <span className="text-[8px] font-mono text-slate-400 mr-0.5 shrink-0">
-                                        F{rIdx + 1}
-                                      </span>
-                                    )}
-                                  {rPorts.map((p) =>
-                                    renderPortButton(dev, p, rPorts.length)
-                                  )}
+                              {/* ZONE 2: CENTER PORTS (Separated Main Switch Bank / WAN / FXS) */}
+                              {centerRows.length > 0 && (
+                                <div className="flex flex-col gap-1 items-center justify-center shrink-0 px-1">
+                                  {centerRows.map((rPorts, rIdx) => (
+                                    <div
+                                      key={`zcenter-${dev.id}-${rIdx}`}
+                                      className="flex flex-nowrap items-center gap-[3px]"
+                                    >
+                                      {rPorts.map((p) =>
+                                        renderPortButton(dev, p, rPorts.length)
+                                      )}
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
+                              )}
+
+                              {/* ZONE 3: RIGHT PORTS (LAN Ports / SFP+ Uplinks / Patch Panel Row) */}
+                              {rightRows.length > 0 && (
+                                <div
+                                  className={`flex flex-col gap-1 items-end justify-center shrink-0 ${
+                                    centerRows.length > 0
+                                      ? 'pl-1.5 border-l border-slate-700/60'
+                                      : ''
+                                  }`}
+                                >
+                                  {rightRows.map((rPorts, rIdx) => (
+                                    <div
+                                      key={`zright-${dev.id}-${rIdx}`}
+                                      className="flex flex-nowrap items-center gap-[3px] justify-end"
+                                    >
+                                      {rightRows.length > 1 &&
+                                        leftRows.length === 0 &&
+                                        centerRows.length === 0 && (
+                                          <span className="text-[8px] font-mono text-slate-400 mr-0.5 shrink-0">
+                                            F{rIdx + 1}
+                                          </span>
+                                        )}
+                                      {rPorts.map((p) =>
+                                        renderPortButton(dev, p, rPorts.length)
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -1750,6 +2046,48 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 </div>
               </div>
 
+              {/* Graphical Freeform Port Dragging Control in Inspector */}
+              <div className="p-3 rounded-lg bg-amber-950/35 border border-amber-600/60 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-amber-200 flex items-center gap-1.5">
+                    <Move className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Posición Gráfica de Puertos</span>
+                  </span>
+                  {selectedDevice.ports.some(
+                    (p) => typeof p.xPercent === 'number'
+                  ) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleResetDevicePortCoordinates(selectedDevice.id)
+                      }
+                      className="text-[10px] font-mono text-amber-300 hover:text-white underline cursor-pointer"
+                    >
+                      Auto-Alinear
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-300 leading-relaxed">
+                  Mueva cualquier puerto libremente con el cursor por el frontal del dispositivo en el rack.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setGraphicalPortMoveMode(!graphicalPortMoveMode)}
+                  className={`w-full py-1.5 px-3 rounded-lg font-mono text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                    graphicalPortMoveMode
+                      ? 'bg-amber-500 text-slate-950 border-white shadow-md'
+                      : 'bg-slate-900 hover:bg-amber-500/20 text-amber-300 border-amber-500/60'
+                  }`}
+                >
+                  <Move className="w-3.5 h-3.5" />
+                  <span>
+                    {graphicalPortMoveMode
+                      ? 'Modo Mover con el Cursor: ACTIVO (Arrastre en el Rack)'
+                      : 'Activar Mover Puertos con el Cursor'}
+                  </span>
+                </button>
+              </div>
+
               {/* Custom Port Names, Zone (Left/Center/Right) & Type Editor */}
               <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
                 <div className="flex items-center justify-between">
@@ -1806,7 +2144,12 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                                     ...d,
                                     ports: d.ports.map((portItem) =>
                                       portItem.id === p.id
-                                        ? { ...portItem, zone: nextZone }
+                                        ? {
+                                            ...portItem,
+                                            zone: nextZone,
+                                            xPercent: undefined,
+                                            yPercent: undefined
+                                          }
                                         : portItem
                                     )
                                   }
@@ -2399,16 +2742,16 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       {/* =================================================================== */}
       {showCustomBuilder && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#111827] border border-slate-700 rounded-xl max-w-2xl w-full overflow-hidden shadow-2xl my-6">
+          <div className="bg-[#111827] border border-slate-700 rounded-xl max-w-3xl w-full overflow-hidden shadow-2xl my-6">
             <div className="px-5 py-4 bg-[#0D1322] border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-blue-400" />
                 <div>
                   <h3 className="font-display text-sm font-bold text-white">
-                    Diseñador de Dispositivo Personalizado por Zonas
+                    Diseñador Gráfico de Dispositivo Personalizado
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    Coloque puertos en la Izquierda, Centro o Derecha (Consola Serie, USB, Fibra PON, RJ11 Voz, RJ45, SFP+)
+                    Arrastre los puertos directamente con el cursor sobre el chasis o añada bloques por zonas
                   </p>
                 </div>
               </div>
@@ -2425,10 +2768,137 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               onSubmit={handleCreateCustomDevice}
               className="p-5 space-y-4 text-xs"
             >
+              {/* INTERACTIVE GRAPHICAL 19" FACEPLATE CANVAS — DRAG PORTS WITH THE CURSOR */}
+              <div className="p-3.5 rounded-xl bg-[#090D16] border-2 border-amber-500/70 space-y-2 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                    <Move className="w-3.5 h-3.5 text-amber-400" />
+                    <span>
+                      LIENZO GRÁFICO INTERACTIVO — Pinche y mueva cualquier puerto con el cursor donde quiera:
+                    </span>
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">
+                    {customPreviewPorts.length} puertos activos
+                  </span>
+                </div>
+
+                {/* Simulated 19" Rack Chassis Faceplate */}
+                <div
+                  style={{
+                    minHeight: `${Math.max(66, customDevUSize * 46)}px`,
+                    background: `linear-gradient(90deg, ${customDevColor}E6 0%, #0F172A 55%, #0F172A 100%)`
+                  }}
+                  className="relative flex items-stretch rounded-lg border border-slate-700 overflow-hidden select-none"
+                >
+                  {/* Left Rack Ear */}
+                  <div className="w-9 shrink-0 bg-slate-950/90 border-r border-slate-800 flex flex-col items-center justify-center font-mono text-[10px] text-slate-400">
+                    <span>U{customDevUStart.toString().padStart(2, '0')}</span>
+                  </div>
+
+                  {/* Brand & Type Badge */}
+                  <div className="flex items-center gap-1.5 px-2.5 shrink-0 w-[96px] border-r border-slate-800/70">
+                    <div className="min-w-0 leading-tight">
+                      <div className="font-mono text-[11px] font-bold text-white truncate">
+                        {customDevBrand.split('/')[0].trim().split(' ')[0] ||
+                          'Custom'}
+                      </div>
+                      <div className="text-[8px] font-mono uppercase tracking-wider text-slate-300 truncate">
+                        {CATEGORY_LABELS[customDevCategory]}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Interactive 2D Drag Area */}
+                  <div
+                    ref={customCanvasRef}
+                    className="flex-1 relative min-h-[60px] bg-slate-950/35"
+                  >
+                    {/* Subtle Zone Guides */}
+                    <div className="absolute inset-0 pointer-events-none grid grid-cols-3 divide-x divide-dashed divide-slate-700/40">
+                      <div className="px-2 py-1 text-[8px] font-mono uppercase text-slate-500/70">
+                        Zona Izquierda (Serie/USB/PON)
+                      </div>
+                      <div className="px-2 py-1 text-[8px] font-mono uppercase text-slate-500/70 text-center">
+                        Zona Central (WAN/Voz/Switch)
+                      </div>
+                      <div className="px-2 py-1 text-[8px] font-mono uppercase text-slate-500/70 text-right">
+                        Zona Derecha (LAN/SFP+)
+                      </div>
+                    </div>
+
+                    {customPreviewPorts.map((port) => {
+                      const isDraggingThis = draggingCustomPortId === port.id;
+                      const isDefaultNumeric = /^(GE|P|PORT|eno)\d+$/i.test(
+                        port.label
+                      );
+                      const showShortText =
+                        !isDefaultNumeric ||
+                        port.type === 'console' ||
+                        port.type === 'usb' ||
+                        port.type === 'pon' ||
+                        port.type === 'fxs';
+                      const displayTag = showShortText
+                        ? port.label.substring(0, 4)
+                        : port.number.toString().padStart(2, '0');
+
+                      const typeStyle =
+                        port.type === 'pon'
+                          ? 'bg-emerald-950 text-emerald-300 border-emerald-400'
+                          : port.type === 'console'
+                          ? 'bg-sky-950 text-sky-300 border-sky-400'
+                          : port.type === 'usb'
+                          ? 'bg-indigo-950 text-indigo-300 border-indigo-400'
+                          : port.type === 'fxs'
+                          ? 'bg-purple-950 text-purple-300 border-purple-400'
+                          : port.type === 'sfp'
+                          ? 'bg-slate-950 text-cyan-300 border-cyan-400'
+                          : port.type === 'power'
+                          ? 'bg-amber-950 text-amber-300 border-amber-400'
+                          : 'bg-slate-900 text-white border-slate-500';
+
+                      return (
+                        <button
+                          key={port.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setDraggingCustomPortId(port.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            left: `${port.xPercent ?? 50}%`,
+                            top: `${port.yPercent ?? 50}%`,
+                            transform: 'translate(-50%, -50%)'
+                          }}
+                          title={`Arrastre con el ratón: #${port.number} [${port.label}] (X=${port.xPercent}%, Y=${port.yPercent}%)`}
+                          className={`h-[21px] ${
+                            showShortText
+                              ? 'min-w-[24px] px-1 text-[8px]'
+                              : 'w-[22px] text-[9px]'
+                          } rounded-[3px] font-mono font-bold flex items-center justify-center border cursor-grab active:cursor-grabbing tabular-nums select-none ${
+                            isDraggingThis
+                              ? 'bg-amber-400 text-slate-950 border-white ring-2 ring-white z-50 shadow-xl'
+                              : `${typeStyle} hover:ring-2 hover:ring-amber-300 z-20`
+                          }`}
+                        >
+                          {displayTag}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Right Rack Ear */}
+                  <div className="w-8 shrink-0 bg-slate-950/90 border-l border-slate-800 flex items-center justify-center font-mono text-[10px] text-slate-500">
+                    U{customDevUStart.toString().padStart(2, '0')}
+                  </div>
+                </div>
+              </div>
+
               {/* Quick Hardware Archetype Presets */}
               <div>
                 <label className="block text-[11px] text-slate-400 mb-1.5">
-                  Plantillas Rápidas de Distribución Física (clic para cargar y personalizar):
+                  Plantillas Rápidas de Distribución Física (clic para cargar y luego mover con el ratón):
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {[
@@ -2520,7 +2990,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       Bloques de Puertos en el Frontal del Dispositivo
                     </span>
                     <p className="text-[11px] text-slate-400">
-                      Elija en qué parte del equipo va cada grupo de puertos (Izquierda, Centro o Derecha), su tipo y cantidad.
+                      Añada grupos de puertos y luego muévalos libremente con el ratón en el lienzo superior.
                     </p>
                   </div>
                   <button
@@ -2545,7 +3015,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-[210px] overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
                   {customPortBlocks.map((blk, idx) => (
                     <div
                       key={blk.id}

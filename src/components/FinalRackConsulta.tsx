@@ -22,7 +22,8 @@ import {
 import {
   CATEGORY_LABELS,
   CABLE_COLORS,
-  getOrganizedDeviceZones
+  getOrganizedDeviceZones,
+  ensureDevicePortCoordinates
 } from '../constants';
 
 const PORT_TYPE_LABEL: Record<PortType, string> = {
@@ -451,6 +452,15 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                   if (slotInfo && slotInfo.type === 'start_top') {
                     const dev = slotInfo.device;
                     const zones = getOrganizedDeviceZones(dev);
+                    const hasFreeformCoords = dev.ports.some(
+                      (p) =>
+                        typeof p.xPercent === 'number' &&
+                        typeof p.yPercent === 'number'
+                    );
+                    const positionedPorts = hasFreeformCoords
+                      ? ensureDevicePortCoordinates(dev)
+                      : dev.ports;
+
                     const rowHeightPx = Math.max(
                       dev.uSize * 40,
                       zones.maxRows * 25 + 16
@@ -488,6 +498,118 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                     const activeChassisColor =
                       dev.customColor || defaultCategoryColor;
 
+                    const renderSinglePortBtn = (
+                      port: DevicePort,
+                      rowLen: number,
+                      isAbsolute?: boolean
+                    ) => {
+                      const connCable = getCableForPort(port.id);
+                      const isPortActive =
+                        activeConnection &&
+                        (activeConnection.fromPort.id === port.id ||
+                          activeConnection.toPort.id === port.id);
+                      const portColorHex = connCable
+                        ? COLOR_HEX_MAP[connCable.color]
+                        : undefined;
+
+                      const isDefaultLabel =
+                        /^(GE|P|PORT|eno|SFP\+|ETH|OUT|CAM|FXS|IEC)\d+$/i.test(
+                          port.label
+                        );
+                      const customPortName = !isDefaultLabel ? port.label : null;
+
+                      const typePassiveStyle =
+                        port.type === 'sfp'
+                          ? 'bg-slate-950 text-cyan-300 border-cyan-500/70 hover:border-cyan-300'
+                          : port.type === 'pon'
+                          ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/80 hover:border-emerald-300'
+                          : port.type === 'console'
+                          ? 'bg-sky-950/90 text-sky-300 border-sky-500/70 hover:border-sky-300'
+                          : port.type === 'usb'
+                          ? 'bg-purple-950/90 text-purple-300 border-purple-500/70 hover:border-purple-300'
+                          : port.type === 'fxs'
+                          ? 'bg-amber-950/90 text-amber-300 border-amber-500/70 hover:border-amber-300'
+                          : port.type === 'coax'
+                          ? 'bg-orange-950/90 text-orange-300 border-orange-500/70 hover:border-orange-300'
+                          : port.type === 'power'
+                          ? 'bg-rose-950/90 text-rose-300 border-rose-500/70 hover:border-rose-300'
+                          : 'bg-slate-900/90 text-slate-300 border-slate-700 hover:text-white';
+
+                      const inlineStyle: React.CSSProperties = {};
+                      if (connCable) {
+                        inlineStyle.backgroundColor = portColorHex;
+                        inlineStyle.borderColor = '#ffffff';
+                      }
+                      if (
+                        isAbsolute &&
+                        typeof port.xPercent === 'number' &&
+                        typeof port.yPercent === 'number'
+                      ) {
+                        inlineStyle.position = 'absolute';
+                        inlineStyle.left = `${port.xPercent}%`;
+                        inlineStyle.top = `${port.yPercent}%`;
+                        inlineStyle.transform = 'translate(-50%, -50%)';
+                      }
+
+                      return (
+                        <button
+                          key={port.id}
+                          ref={(el) => {
+                            portRefs.current[port.id] = el;
+                          }}
+                          type="button"
+                          title={`Puerto #${port.number} (${port.label}) · ${
+                            PORT_TYPE_LABEL[port.type] || port.type
+                          }`}
+                          onMouseEnter={() => {
+                            if (connCable) {
+                              setHoveredCableId(connCable.id);
+                              setHoveredFreePort(null);
+                            } else {
+                              setHoveredCableId(null);
+                              setHoveredFreePort({
+                                device: dev,
+                                port
+                              });
+                            }
+                          }}
+                          onMouseLeave={() => {
+                            setHoveredCableId(null);
+                            setHoveredFreePort(null);
+                          }}
+                          onClick={() => {
+                            if (connCable) {
+                              setPinnedCableId(
+                                pinnedCableId === connCable.id
+                                  ? null
+                                  : connCable.id
+                              );
+                            }
+                          }}
+                          style={inlineStyle}
+                          className={`h-5 ${
+                            rowLen > 16
+                              ? 'w-[16px] text-[7px]'
+                              : rowLen > 12
+                              ? 'w-[18px] text-[8px]'
+                              : customPortName
+                              ? 'min-w-[20px] max-w-[44px] px-1 text-[8px]'
+                              : 'w-[21px] text-[8px]'
+                          } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 truncate ${
+                            isPortActive
+                              ? 'ring-2 ring-amber-300 z-40 shadow-lg text-white brightness-125'
+                              : connCable
+                              ? 'text-white hover:brightness-125'
+                              : typePassiveStyle
+                          }`}
+                        >
+                          {customPortName
+                            ? customPortName.substring(0, 5)
+                            : port.number.toString().padStart(2, '0')}
+                        </button>
+                      );
+                    };
+
                     const renderZoneBank = (
                       zoneRows: DevicePort[][],
                       zoneKey: 'left' | 'center' | 'right',
@@ -508,106 +630,9 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                                   F{rIndex + 1}
                                 </span>
                               )}
-                              {rowPorts.map((port) => {
-                                const connCable = getCableForPort(port.id);
-                                const isPortActive =
-                                  activeConnection &&
-                                  (activeConnection.fromPort.id === port.id ||
-                                    activeConnection.toPort.id === port.id);
-                                const portColorHex = connCable
-                                  ? COLOR_HEX_MAP[connCable.color]
-                                  : undefined;
-
-                                const isDefaultLabel =
-                                  /^(GE|P|PORT|eno|SFP\+|ETH|OUT|CAM|FXS|IEC)\d+$/i.test(
-                                    port.label
-                                  );
-                                const customPortName = !isDefaultLabel
-                                  ? port.label
-                                  : null;
-
-                                const typePassiveStyle =
-                                  port.type === 'sfp'
-                                    ? 'bg-slate-950 text-cyan-300 border-cyan-500/70 hover:border-cyan-300'
-                                    : port.type === 'pon'
-                                    ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/80 hover:border-emerald-300'
-                                    : port.type === 'console'
-                                    ? 'bg-sky-950/90 text-sky-300 border-sky-500/70 hover:border-sky-300'
-                                    : port.type === 'usb'
-                                    ? 'bg-purple-950/90 text-purple-300 border-purple-500/70 hover:border-purple-300'
-                                    : port.type === 'fxs'
-                                    ? 'bg-amber-950/90 text-amber-300 border-amber-500/70 hover:border-amber-300'
-                                    : port.type === 'coax'
-                                    ? 'bg-orange-950/90 text-orange-300 border-orange-500/70 hover:border-orange-300'
-                                    : port.type === 'power'
-                                    ? 'bg-rose-950/90 text-rose-300 border-rose-500/70 hover:border-rose-300'
-                                    : 'bg-slate-900/90 text-slate-300 border-slate-700 hover:text-white';
-
-                                return (
-                                  <button
-                                    key={port.id}
-                                    ref={(el) => {
-                                      portRefs.current[port.id] = el;
-                                    }}
-                                    type="button"
-                                    title={`Puerto #${port.number} (${port.label}) · ${
-                                      PORT_TYPE_LABEL[port.type] || port.type
-                                    }`}
-                                    onMouseEnter={() => {
-                                      if (connCable) {
-                                        setHoveredCableId(connCable.id);
-                                        setHoveredFreePort(null);
-                                      } else {
-                                        setHoveredCableId(null);
-                                        setHoveredFreePort({
-                                          device: dev,
-                                          port
-                                        });
-                                      }
-                                    }}
-                                    onMouseLeave={() => {
-                                      setHoveredCableId(null);
-                                      setHoveredFreePort(null);
-                                    }}
-                                    onClick={() => {
-                                      if (connCable) {
-                                        setPinnedCableId(
-                                          pinnedCableId === connCable.id
-                                            ? null
-                                            : connCable.id
-                                        );
-                                      }
-                                    }}
-                                    style={
-                                      connCable
-                                        ? {
-                                            backgroundColor: portColorHex,
-                                            borderColor: '#ffffff'
-                                          }
-                                        : undefined
-                                    }
-                                    className={`h-5 ${
-                                      rowPorts.length > 16
-                                        ? 'w-[16px] text-[7px]'
-                                        : rowPorts.length > 12
-                                        ? 'w-[18px] text-[8px]'
-                                        : customPortName
-                                        ? 'min-w-[20px] max-w-[44px] px-1 text-[8px]'
-                                        : 'w-[21px] text-[8px]'
-                                    } rounded-[3px] font-mono font-bold flex items-center justify-center border transition-colors cursor-pointer tabular-nums shrink-0 truncate ${
-                                      isPortActive
-                                        ? 'ring-2 ring-amber-300 z-40 shadow-lg text-white brightness-125'
-                                        : connCable
-                                        ? 'text-white hover:brightness-125'
-                                        : typePassiveStyle
-                                    }`}
-                                  >
-                                    {customPortName
-                                      ? customPortName.substring(0, 5)
-                                      : port.number.toString().padStart(2, '0')}
-                                  </button>
-                                );
-                              })}
+                              {rowPorts.map((port) =>
+                                renderSinglePortBtn(port, rowPorts.length, false)
+                              )}
                             </div>
                           ))}
                         </div>
@@ -637,8 +662,8 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                           )}
                         </div>
 
-                        {/* Device Faceplate: Compact Brand + Device Type on Left, 3-Zone Ports (Left / Center / Right) */}
-                        <div className="flex-1 px-2.5 py-1.5 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
+                        {/* Device Faceplate: Compact Brand + Device Type on Left, Ports on Right */}
+                        <div className="flex-1 px-2.5 py-1.5 flex items-stretch justify-between gap-2 min-w-0 overflow-hidden">
                           <div
                             className="flex items-center gap-1.5 shrink-0 w-[92px]"
                             title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
@@ -658,36 +683,54 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                             </div>
                           </div>
 
-                          {/* 3-Zone Chassis Faceplate Layout */}
-                          <div className="flex-1 flex items-center justify-between gap-3 z-30 min-w-0">
-                            {/* Left Zone */}
-                            <div className="flex items-center">
-                              {renderZoneBank(
-                                zones.leftRows,
-                                'left',
-                                'items-start'
-                              )}
-                            </div>
+                          {/* Either Freeform Graphical Coordinates OR 3-Zone Chassis Layout */}
+                          <div
+                            className={`flex-1 relative z-30 min-w-0 ${
+                              hasFreeformCoords
+                                ? 'min-h-[30px]'
+                                : 'flex items-center justify-between gap-3'
+                            }`}
+                          >
+                            {hasFreeformCoords ? (
+                              positionedPorts.map((p) =>
+                                renderSinglePortBtn(
+                                  p,
+                                  positionedPorts.length > 24 ? 20 : 10,
+                                  true
+                                )
+                              )
+                            ) : (
+                              <>
+                                {/* Left Zone */}
+                                <div className="flex items-center">
+                                  {renderZoneBank(
+                                    zones.leftRows,
+                                    'left',
+                                    'items-start'
+                                  )}
+                                </div>
 
-                            {/* Center Zone */}
-                            {zones.centerRows.length > 0 && (
-                              <div className="flex items-center px-2 border-x border-slate-800/70">
-                                {renderZoneBank(
-                                  zones.centerRows,
-                                  'center',
-                                  'items-center'
+                                {/* Center Zone */}
+                                {zones.centerRows.length > 0 && (
+                                  <div className="flex items-center px-2 border-x border-slate-800/70">
+                                    {renderZoneBank(
+                                      zones.centerRows,
+                                      'center',
+                                      'items-center'
+                                    )}
+                                  </div>
                                 )}
-                              </div>
-                            )}
 
-                            {/* Right Zone */}
-                            <div className="flex items-center ml-auto">
-                              {renderZoneBank(
-                                zones.rightRows,
-                                'right',
-                                'items-end'
-                              )}
-                            </div>
+                                {/* Right Zone */}
+                                <div className="flex items-center ml-auto">
+                                  {renderZoneBank(
+                                    zones.rightRows,
+                                    'right',
+                                    'items-end'
+                                  )}
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
 
