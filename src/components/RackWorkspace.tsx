@@ -1619,32 +1619,17 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               <span>Rack a Medida ({rack.totalU}U)</span>
             </button>
 
-            {/* Graphical Port Drag Mode Toggle */}
-            <button
-              type="button"
-              onClick={() => {
-                const next = !graphicalPortMoveMode;
-                setGraphicalPortMoveMode(next);
-                setPendingPort(null);
-                showNotice(
-                  next
-                    ? 'Modo Mover Puertos con el Ratón ACTIVADO: Arrastre cualquier puerto sobre su dispositivo para colocarlo donde quiera.'
-                    : 'Modo Mover Puertos desactivado (Modo conexión de latiguillos activo).'
-                );
-              }}
-              className={`px-3 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5 border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                graphicalPortMoveMode
-                  ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-lg ring-2 ring-amber-400/50'
-                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-500/40'
-              }`}
-            >
-              <Move className="w-3.5 h-3.5" />
-              <span>
-                {graphicalPortMoveMode
-                  ? 'Moviendo Puertos (Activo)'
-                  : 'Mover Puertos'}
-              </span>
-            </button>
+            {/* Quick Zoom Selected Device Button */}
+            {selectedDevice && (
+              <button
+                type="button"
+                onClick={() => setZoomedDeviceId(selectedDevice.id)}
+                className="px-3 py-2 bg-blue-600/25 hover:bg-blue-600/40 text-blue-200 border border-blue-500/60 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <ZoomIn className="w-3.5 h-3.5 text-blue-400" />
+                <span>Zoom y Editar Puertos ({selectedDevice.name})</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -2343,47 +2328,122 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
 
           {selectedDevice ? (
             <div className="space-y-3.5 text-xs">
-              {/* Quick Banner to Launch Full Zoom Tab */}
+              {/* Primary Call-To-Action: Open Zoom Tab for Port Editing */}
               <button
                 type="button"
                 onClick={() => setZoomedDeviceId(selectedDevice.id)}
-                className="w-full p-2.5 rounded-lg bg-gradient-to-r from-blue-600/30 via-indigo-600/25 to-cyan-600/30 hover:from-blue-600/45 hover:to-cyan-600/45 border border-blue-500/60 text-left flex items-center justify-between gap-2 cursor-pointer transition-all shadow"
+                className="w-full p-3.5 rounded-xl bg-gradient-to-r from-blue-600 hover:from-blue-500 to-indigo-600 hover:to-indigo-500 text-white text-left flex items-center justify-between gap-3 cursor-pointer transition-all shadow-lg"
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="p-1.5 rounded-md bg-blue-600 text-white shrink-0">
-                    <ZoomIn className="w-4 h-4" />
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2 rounded-lg bg-white/15 shrink-0">
+                    <ZoomIn className="w-5 h-5 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <div className="font-display text-xs font-bold text-white truncate">
-                      Abrir Zoom del Dispositivo ({selectedDevice.name})
+                    <div className="font-display text-sm font-bold text-white truncate">
+                      Hacer Zoom y Editar Equipo
                     </div>
-                    <div className="text-[10px] text-blue-200 truncate">
-                      Editar en grande, arrastrar puertos y renombrar etiquetas
+                    <div className="text-[11px] text-blue-100 leading-snug">
+                      Mover puertos con el ratón, poner nombres, cambiar filas y colores en grande
                     </div>
                   </div>
                 </div>
-                <span className="px-2 py-0.5 rounded bg-blue-500 text-white font-mono text-[10px] font-bold shrink-0">
-                  Ampliar
+                <span className="px-2.5 py-1 rounded-md bg-black/25 font-mono text-[11px] font-bold shrink-0">
+                  Abrir ↗
                 </span>
               </button>
+
+              {/* Quick Basic Info Summary (Name + IP + U Height) */}
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5">
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">
+                    Nombre del Equipo en el Rack
+                  </label>
+                  <input
+                    type="text"
+                    value={selectedDevice.name}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onUpdateRack({
+                        ...rack,
+                        devices: rack.devices.map((d) =>
+                          d.id === selectedDevice.id ? { ...d, name: val } : d
+                        )
+                      });
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono font-bold text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Dirección IP
+                    </label>
+                    <input
+                      type="text"
+                      value={selectedDevice.ipAddress}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        onUpdateRack({
+                          ...rack,
+                          devices: rack.devices.map((d) =>
+                            d.id === selectedDevice.id
+                              ? { ...d, ipAddress: val }
+                              : d
+                          )
+                        });
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-cyan-300 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Altura en Rack (U)
+                    </label>
+                    <select
+                      value={selectedDevice.uSize}
+                      onChange={(e) => {
+                        const newU = Number(e.target.value);
+                        if (
+                          isURangeAvailable(
+                            selectedDevice.uStart,
+                            newU,
+                            selectedDevice.id
+                          )
+                        ) {
+                          onUpdateRack({
+                            ...rack,
+                            devices: rack.devices.map((d) =>
+                              d.id === selectedDevice.id
+                                ? { ...d, uSize: newU }
+                                : d
+                            )
+                          });
+                        } else {
+                          showNotice(
+                            `No hay espacio libre encima de U${selectedDevice.uStart} para ampliar a ${newU}U.`
+                          );
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value={1}>1U</option>
+                      <option value={2}>2U</option>
+                      <option value={3}>3U</option>
+                      <option value={4}>4U</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               {/* Dual-Device Shelf Mode (2 Equipos en la misma U) */}
-              <div className="p-3 rounded-lg bg-cyan-950/35 border border-cyan-600/60 space-y-2">
+              <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-600/50 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-semibold text-cyan-200 flex items-center gap-1.5">
                     <Columns2 className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Bandeja / Estantería en U{selectedDevice.uStart}</span>
-                  </span>
-                  <span className="font-mono text-[10px] text-cyan-300">
-                    {selectedDevice.shelfBay === 'left'
-                      ? 'Mitad Izq (1/2)'
-                      : selectedDevice.shelfBay === 'right'
-                      ? 'Mitad Der (2/2)'
-                      : 'Ancho 19" Completo'}
+                    <span>Posición en Estantería U{selectedDevice.uStart}</span>
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-300 leading-relaxed">
-                  Coloque 2 dispositivos en la misma U (ej. 2 firewalls HA o ONT + Router en la misma bandeja):
-                </p>
                 <div className="grid grid-cols-3 gap-1.5">
                   {(
                     [
@@ -2397,7 +2457,6 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       type="button"
                       onClick={() => {
                         if (bayOpt.id === 'full') {
-                          // Check if there is a second device sharing this U
                           const partner = rack.devices.find(
                             (d) =>
                               d.id !== selectedDevice.id &&
@@ -2433,597 +2492,54 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 {/* One-Click Clone / Add 2nd Device on Same U Shelf */}
                 {rack.devices.filter((d) => d.uStart === selectedDevice.uStart)
                   .length < 2 && (
-                  <div className="pt-1 flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const cloneId = `dev-${Date.now()}`;
-                        const clonedPorts = selectedDevice.ports.map((p) => ({
-                          ...p,
-                          id: `${cloneId}-p${p.number}`
-                        }));
-                        const secondDev: RackDevice = {
-                          ...selectedDevice,
-                          id: cloneId,
-                          name: `${selectedDevice.name}-HA2`,
-                          shelfBay:
-                            selectedDevice.shelfBay === 'right'
-                              ? 'left'
-                              : 'right',
-                          serialNumber: `${selectedDevice.serialNumber}-B`,
-                          ports: clonedPorts
-                        };
-                        const updatedList = rack.devices.map((d) =>
-                          d.id === selectedDevice.id
-                            ? {
-                                ...d,
-                                shelfBay: (selectedDevice.shelfBay === 'right'
-                                  ? 'right'
-                                  : 'left') as ShelfBay
-                              }
-                            : d
-                        );
-                        onUpdateRack({
-                          ...rack,
-                          devices: [...updatedList, secondDev]
-                        });
-                        setSelectedDeviceId(secondDev.id);
-                        showNotice(
-                          `Añadido 2º equipo "${secondDev.name}" compartiendo la estantería U${selectedDevice.uStart}`
-                        );
-                      }}
-                      className="flex-1 py-1.5 px-2 rounded bg-cyan-600/25 hover:bg-cyan-600/40 border border-cyan-500/60 text-cyan-200 font-mono text-[10px] font-bold cursor-pointer"
-                    >
-                      + Duplicar en la misma U (Ej. 2º Firewall HA)
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 gap-2">
-                <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">
-                    Hostname / Nombre en Rack
-                  </label>
-                  <input
-                    type="text"
-                    value={selectedDevice.name}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onUpdateRack({
-                        ...rack,
-                        devices: rack.devices.map((d) =>
-                          d.id === selectedDevice.id ? { ...d, name: val } : d
-                        )
-                      });
-                    }}
-                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">
-                    Marca / Modelo de Chasis
-                  </label>
-                  <input
-                    type="text"
-                    value={selectedDevice.model}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onUpdateRack({
-                        ...rack,
-                        devices: rack.devices.map((d) =>
-                          d.id === selectedDevice.id ? { ...d, model: val } : d
-                        )
-                      });
-                    }}
-                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Port Numbering Order Selector (1 Arriba / 2 Abajo vs Secuencial) */}
-              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
-                    <ArrowUpDown className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Orden de Numeración de Puertos</span>
-                  </span>
-                </div>
-                <select
-                  value={selectedDevice.portNumberingOrder || 'sequential'}
-                  onChange={(e) => {
-                    const nextOrder = e.target.value as PortNumberingOrder;
-                    let nextRows = selectedDevice.portsPerRow;
-                    const regCount = selectedDevice.ports.filter(
-                      (p) =>
-                        p.type !== 'sfp' ||
-                        selectedDevice.category === 'patchpanel'
-                    ).length;
-                    if (
-                      nextOrder !== 'sequential' &&
-                      (!nextRows || nextRows.length < 2) &&
-                      regCount >= 4
-                    ) {
-                      const half = Math.ceil(regCount / 2);
-                      nextRows = [half, regCount - half];
-                    }
-
-                    onUpdateRack({
-                      ...rack,
-                      devices: rack.devices.map((d) =>
-                        d.id === selectedDevice.id
-                          ? {
-                              ...d,
-                              portNumberingOrder: nextOrder,
-                              portsPerRow: nextRows
-                            }
-                          : d
-                      )
-                    });
-                  }}
-                  className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="vertical-odd-even">
-                    Vertical: 1 Arriba / 2 Abajo (Impares F1, Pares F2)
-                  </option>
-                  <option value="sequential">
-                    Horizontal Secuencial (Fila 1: 1..12, Fila 2: 13..24)
-                  </option>
-                  <option value="vertical-even-odd">
-                    Vertical Invertido: 2 Arriba / 1 Abajo (Pares F1, Impares F2)
-                  </option>
-                </select>
-              </div>
-
-              {/* Custom Device Color Picker */}
-              <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5">
-                    <Palette className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Color Distintivo del Dispositivo</span>
-                  </span>
-                  <input
-                    type="color"
-                    value={selectedDevice.customColor || '#1E293B'}
-                    onChange={(e) => {
-                      const hex = e.target.value;
-                      onUpdateRack({
-                        ...rack,
-                        devices: rack.devices.map((d) =>
-                          d.id === selectedDevice.id
-                            ? { ...d, customColor: hex }
-                            : d
-                        )
-                      });
-                    }}
-                    className="w-6 h-5 rounded cursor-pointer bg-transparent border-0"
-                    title="Elegir cualquier color RGB"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {DEVICE_COLOR_PALETTE.map((swatch) => (
-                    <button
-                      key={swatch.id}
-                      type="button"
-                      onClick={() =>
-                        onUpdateRack({
-                          ...rack,
-                          devices: rack.devices.map((d) =>
-                            d.id === selectedDevice.id
-                              ? { ...d, customColor: swatch.hex }
-                              : d
-                          )
-                        })
-                      }
-                      title={swatch.name}
-                      style={{ backgroundColor: swatch.hex }}
-                      className={`w-5 h-5 rounded-md border transition-transform cursor-pointer ${
-                        selectedDevice.customColor === swatch.hex
-                          ? 'border-white scale-110 ring-2 ring-blue-400'
-                          : 'border-slate-600 hover:scale-105'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Graphical Freeform Port Dragging Control in Inspector */}
-              <div className="p-3 rounded-lg bg-amber-950/35 border border-amber-600/60 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-amber-200 flex items-center gap-1.5">
-                    <Move className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Posición Gráfica de Puertos</span>
-                  </span>
-                  {selectedDevice.ports.some(
-                    (p) => typeof p.xPercent === 'number'
-                  ) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleResetDevicePortCoordinates(selectedDevice.id)
-                      }
-                      className="text-[10px] font-mono text-amber-300 hover:text-white underline cursor-pointer"
-                    >
-                      Auto-Alinear
-                    </button>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-300 leading-relaxed">
-                  Mueva cualquier puerto libremente con el cursor por el frontal del dispositivo en el rack.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setGraphicalPortMoveMode(!graphicalPortMoveMode)}
-                  className={`w-full py-1.5 px-3 rounded-lg font-mono text-xs font-bold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                    graphicalPortMoveMode
-                      ? 'bg-amber-500 text-slate-950 border-white shadow-md'
-                      : 'bg-slate-900 hover:bg-amber-500/20 text-amber-300 border-amber-500/60'
-                  }`}
-                >
-                  <Move className="w-3.5 h-3.5" />
-                  <span>
-                    {graphicalPortMoveMode
-                      ? 'Modo Mover con el Cursor: ACTIVO (Arrastre en el Rack)'
-                      : 'Activar Mover Puertos con el Cursor'}
-                  </span>
-                </button>
-              </div>
-
-              {/* Custom Port Names, Zone (Left/Center/Right) & Type Editor */}
-              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-200">
-                    Nombrar y Posicionar Puertos ({selectedDevice.ports.length})
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    Nombre · Zona · Tipo
-                  </span>
-                </div>
-                <div className="max-h-[195px] overflow-y-auto space-y-1.5 pr-1">
-                  {selectedDevice.ports.map((p) => (
-                    <div
-                      key={`rename-port-${p.id}`}
-                      className="flex items-center gap-1.5 bg-slate-950/80 px-2 py-1 rounded border border-slate-800/80"
-                    >
-                      <span className="font-mono text-[10px] text-slate-400 w-7 shrink-0">
-                        #{p.number.toString().padStart(2, '0')}
-                      </span>
-                      <input
-                        type="text"
-                        value={p.label}
-                        onChange={(e) => {
-                          const newLabel = e.target.value;
-                          onUpdateRack({
-                            ...rack,
-                            devices: rack.devices.map((d) =>
-                              d.id === selectedDevice.id
-                                ? {
-                                    ...d,
-                                    ports: d.ports.map((portItem) =>
-                                      portItem.id === p.id
-                                        ? { ...portItem, label: newLabel }
-                                        : portItem
-                                    )
-                                  }
-                                : d
-                            )
-                          });
-                        }}
-                        placeholder={`P${p.number.toString().padStart(2, '0')}`}
-                        className="flex-1 min-w-0 px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-[11px] font-mono text-white focus:outline-none focus:border-blue-500"
-                      />
-                      <select
-                        value={p.zone || 'right'}
-                        title="Posición en el frontal del equipo (Izquierda, Centro o Derecha)"
-                        onChange={(e) => {
-                          const nextZone = e.target.value as PortZone;
-                          onUpdateRack({
-                            ...rack,
-                            devices: rack.devices.map((d) =>
-                              d.id === selectedDevice.id
-                                ? {
-                                    ...d,
-                                    ports: d.ports.map((portItem) =>
-                                      portItem.id === p.id
-                                        ? {
-                                            ...portItem,
-                                            zone: nextZone,
-                                            xPercent: undefined,
-                                            yPercent: undefined
-                                          }
-                                        : portItem
-                                    )
-                                  }
-                                : d
-                            )
-                          });
-                        }}
-                        className="px-1 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-mono text-slate-200"
-                      >
-                        <option value="left">Izq</option>
-                        <option value="center">Cen</option>
-                        <option value="right">Der</option>
-                      </select>
-                      <select
-                        value={p.type}
-                        title="Tipo físico de puerto"
-                        onChange={(e) => {
-                          const nextType = e.target.value as PortType;
-                          onUpdateRack({
-                            ...rack,
-                            devices: rack.devices.map((d) =>
-                              d.id === selectedDevice.id
-                                ? {
-                                    ...d,
-                                    ports: d.ports.map((portItem) =>
-                                      portItem.id === p.id
-                                        ? { ...portItem, type: nextType }
-                                        : portItem
-                                    )
-                                  }
-                                : d
-                            )
-                          });
-                        }}
-                        className="px-1 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-mono text-cyan-300"
-                      >
-                        <option value="rj45">RJ45</option>
-                        <option value="sfp">SFP+</option>
-                        <option value="pon">PON</option>
-                        <option value="console">CON</option>
-                        <option value="usb">USB</option>
-                        <option value="fxs">TEL</option>
-                        <option value="keystone">KEY</option>
-                        <option value="power">PWR</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Add / Remove Extra Ports on Any Device in Any Zone (Left, Center, Right) */}
-              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-200">
-                    Añadir Puerto en Cualquier Parte ({selectedDevice.ports.length}p)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleRemoveLastPortFromDevice}
-                    className="text-[10px] font-mono text-red-400 hover:text-red-300 underline cursor-pointer"
-                  >
-                    -1 Puerto
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-1.5">
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Cant.
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={24}
-                      value={addPortQty}
-                      onChange={(e) =>
-                        setAddPortQty(
-                          Math.max(1, Math.min(24, Number(e.target.value) || 1))
-                        )
-                      }
-                      className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Tipo Puerto
-                    </label>
-                    <select
-                      value={addPortType}
-                      onChange={(e) => {
-                        const t = e.target.value as PortType;
-                        setAddPortType(t);
-                        if (t === 'console') setAddPortPrefix('CON');
-                        else if (t === 'usb') setAddPortPrefix('USB');
-                        else if (t === 'pon') setAddPortPrefix('PON');
-                        else if (t === 'fxs') setAddPortPrefix('TEL');
-                        else if (t === 'sfp') setAddPortPrefix('SFP+');
-                        else setAddPortPrefix('GE');
-                      }}
-                      className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white"
-                    >
-                      <option value="rj45">RJ45 Ethernet</option>
-                      <option value="sfp">SFP+ Fibra</option>
-                      <option value="pon">PON Fibra ISP</option>
-                      <option value="console">Consola Serie</option>
-                      <option value="usb">Puerto USB</option>
-                      <option value="fxs">Teléfono RJ11</option>
-                      <option value="keystone">Keystone</option>
-                      <option value="power">Eléctrico IEC</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">
-                      Posición
-                    </label>
-                    <select
-                      value={addPortZone}
-                      onChange={(e) => setAddPortZone(e.target.value as PortZone)}
-                      className="w-full px-1.5 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                    >
-                      <option value="left">Izquierda</option>
-                      <option value="center">Centro</option>
-                      <option value="right">Derecha</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={addPortPrefix}
-                    onChange={(e) => setAddPortPrefix(e.target.value)}
-                    placeholder="Nombre (ej. CON, USB, WAN, GE)"
-                    className="flex-1 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddPortsToSelectedDevice}
-                    className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>Añadir</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Row & Points per Row Editor */}
-              <div className="p-3 rounded-lg bg-blue-950/30 border border-blue-800/60 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-blue-200 flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Filas y Puntos por Fila</span>
-                  </span>
                   <button
                     type="button"
                     onClick={() => {
-                      const currentRows =
-                        selectedDevice.portsPerRow &&
-                        selectedDevice.portsPerRow.length > 0
-                          ? [...selectedDevice.portsPerRow]
-                          : [selectedDevice.ports.length];
-                      if (currentRows.length < 4) {
-                        handleReconfigureDeviceRows(selectedDevice, [
-                          ...currentRows,
-                          12
-                        ]);
-                      }
-                    }}
-                    className="px-2 py-0.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-[10px] font-medium cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    + Nueva Fila
-                  </button>
-                </div>
-
-                <div className="space-y-1.5">
-                  {(selectedDevice.portsPerRow &&
-                  selectedDevice.portsPerRow.length > 0
-                    ? selectedDevice.portsPerRow
-                    : [selectedDevice.ports.length]
-                  ).map((pts, idx, arr) => (
-                    <div
-                      key={`pp-row-edit-${idx}`}
-                      className="flex items-center justify-between gap-2 bg-slate-900/90 px-2.5 py-1.5 rounded border border-slate-800"
-                    >
-                      <span className="font-mono text-[11px] text-slate-300">
-                        Fila {idx + 1} (Puertos):
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min={1}
-                          max={24}
-                          value={pts}
-                          onChange={(e) => {
-                            const val = Math.max(
-                              1,
-                              Math.min(24, Number(e.target.value) || 1)
-                            );
-                            const nextRows = [...arr];
-                            nextRows[idx] = val;
-                            handleReconfigureDeviceRows(
-                              selectedDevice,
-                              nextRows
-                            );
-                          }}
-                          className="w-16 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white text-center"
-                        />
-                        {arr.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const nextRows = arr.filter((_, i) => i !== idx);
-                              handleReconfigureDeviceRows(
-                                selectedDevice,
-                                nextRows
-                              );
-                            }}
-                            className="p-1 text-slate-400 hover:text-red-400 cursor-pointer"
-                            title="Quitar esta fila"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">
-                    Dirección IP / Máscara
-                  </label>
-                  <input
-                    type="text"
-                    value={selectedDevice.ipAddress}
-                    onChange={(e) => {
-                      const val = e.target.value;
+                      const cloneId = `dev-${Date.now()}`;
+                      const clonedPorts = selectedDevice.ports.map((p) => ({
+                        ...p,
+                        id: `${cloneId}-p${p.number}`
+                      }));
+                      const secondDev: RackDevice = {
+                        ...selectedDevice,
+                        id: cloneId,
+                        name: `${selectedDevice.name}-2`,
+                        shelfBay:
+                          selectedDevice.shelfBay === 'right'
+                            ? 'left'
+                            : 'right',
+                        serialNumber: `${selectedDevice.serialNumber}-B`,
+                        ports: clonedPorts
+                      };
+                      const updatedList = rack.devices.map((d) =>
+                        d.id === selectedDevice.id
+                          ? {
+                              ...d,
+                              shelfBay: (selectedDevice.shelfBay === 'right'
+                                ? 'right'
+                                : 'left') as ShelfBay
+                            }
+                          : d
+                      );
                       onUpdateRack({
                         ...rack,
-                        devices: rack.devices.map((d) =>
-                          d.id === selectedDevice.id
-                            ? { ...d, ipAddress: val }
-                            : d
-                        )
+                        devices: [...updatedList, secondDev]
                       });
+                      setSelectedDeviceId(secondDev.id);
+                      showNotice(
+                        `Añadido 2º equipo "${secondDev.name}" en la misma U${selectedDevice.uStart}`
+                      );
                     }}
-                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">
-                    Altura en Rack (U)
-                  </label>
-                  <select
-                    value={selectedDevice.uSize}
-                    onChange={(e) => {
-                      const newU = Number(e.target.value);
-                      if (
-                        isURangeAvailable(
-                          selectedDevice.uStart,
-                          newU,
-                          selectedDevice.id
-                        )
-                      ) {
-                        onUpdateRack({
-                          ...rack,
-                          devices: rack.devices.map((d) =>
-                            d.id === selectedDevice.id
-                              ? { ...d, uSize: newU }
-                              : d
-                          )
-                        });
-                      } else {
-                        showNotice(
-                          `No hay espacio libre encima de U${selectedDevice.uStart} para ampliar a ${newU}U.`
-                        );
-                      }
-                    }}
-                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white focus:outline-none focus:border-blue-500"
+                    className="w-full py-1.5 px-2 rounded bg-cyan-600/25 hover:bg-cyan-600/40 border border-cyan-500/60 text-cyan-200 font-mono text-[10px] font-bold cursor-pointer"
                   >
-                    <option value={1}>1U</option>
-                    <option value={2}>2U</option>
-                    <option value={3}>3U</option>
-                    <option value={4}>4U</option>
-                  </select>
-                </div>
+                    + Poner 2º Equipo igual al lado en U{selectedDevice.uStart}
+                  </button>
+                )}
               </div>
             </div>
           ) : (
             <p className="text-xs text-slate-400 py-4 text-center">
-              Seleccione cualquier dispositivo en el rack para organizar sus puertos (Izquierda, Centro, Derecha), nombrar puertos o cambiar su color.
+              Haga clic en un dispositivo del rack o pulse su icono de lupa para abrirlo en Zoom y personalizarlo.
             </p>
           )}
         </div>
