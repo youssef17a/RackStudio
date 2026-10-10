@@ -135,8 +135,18 @@ export function exportRackToTechnicalPDF(
   });
 
   const portConnMap = buildPortConnectionMap(rack);
-  const sortedDevices = [...rack.devices].sort((a, b) => b.uStart - a.uStart);
-  const usedU = rack.devices.reduce((acc, d) => acc + d.uSize, 0);
+  const sortedDevices = [...rack.devices].sort((a, b) => {
+    if (b.uStart !== a.uStart) return b.uStart - a.uStart;
+    const order = { left: 0, full: 1, right: 2 };
+    return order[a.shelfBay || 'full'] - order[b.shelfBay || 'full'];
+  });
+  const occupiedUSet = new Set<number>();
+  rack.devices.forEach((d) => {
+    for (let u = d.uStart; u < d.uStart + d.uSize; u++) {
+      occupiedUSet.add(u);
+    }
+  });
+  const usedU = occupiedUSet.size;
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
   const totalPorts = rack.devices.reduce((acc, d) => acc + d.ports.length, 0);
 
@@ -159,7 +169,7 @@ export function exportRackToTechnicalPDF(
   doc.setFontSize(isA3 ? 9 : 7.5);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    `Empresa: ${project.companyName}  |  Proyecto: ${project.projectName}  |  Ubicación: ${project.siteAddress}  |  Ocupación: ${usedU}/${rack.totalU}U  |  Equipos: ${rack.devices.length}  |  Cables: ${rack.cables.length}  |  Formato: ${
+    `Empresa: ${project.companyName}  |  Proyecto: ${project.projectName}  |  Armario: ${rack.totalU}U (${rack.widthMm || 600}x${rack.depthMm || 1000}mm)  |  Ocupación: ${usedU}/${rack.totalU}U  |  Equipos: ${rack.devices.length}  |  Cables: ${rack.cables.length}  |  Formato: ${
       isA3 ? 'DIN A3 Apaisado' : isLandscape ? 'DIN A4 Apaisado' : 'DIN A4 Vertical'
     }  |  Fecha: ${dateStr}`,
     10,
@@ -207,27 +217,38 @@ export function exportRackToTechnicalPDF(
     const yTop = rackY + idxFromTop * uHeight;
     const h = dev.uSize * uHeight;
 
+    const isHalfLeft = dev.shelfBay === 'left';
+    const isHalfRight = dev.shelfBay === 'right';
+    const devX = isHalfRight ? rackX + rackW / 2 + 0.2 : rackX + 0.5;
+    const devW =
+      isHalfLeft || isHalfRight ? rackW / 2 - 0.7 : rackW - 1;
+
     const customRgb = hexToRgbTuple(dev.customColor);
     const fill = customRgb || CATEGORY_FILL[dev.category] || [30, 41, 59];
     doc.setFillColor(fill[0], fill[1], fill[2]);
     doc.setDrawColor(203, 213, 225);
     doc.setLineWidth(0.2);
-    doc.rect(rackX + 0.5, yTop + 0.2, rackW - 1, h - 0.4, 'FD');
+    doc.rect(devX, yTop + 0.2, devW, h - 0.4, 'FD');
 
     const shortBrand = dev.model.split('/')[0].trim().split(' ')[0];
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(isA3 ? 6 : 4.8);
+    doc.setFontSize(isA3 ? 5.5 : 4.4);
     doc.text(
-      `${shortBrand} (${CATEGORY_LABELS[dev.category]})`.substring(0, 22),
-      rackX + 1.8,
+      `${shortBrand} (${CATEGORY_LABELS[dev.category]})`.substring(
+        0,
+        isHalfLeft || isHalfRight ? 12 : 22
+      ),
+      devX + 1.2,
       yTop + Math.min(h / 2 + 0.8, 3.8)
     );
 
     // Draw individual port squares on the device faceplate
     const positionedPorts = ensureDevicePortCoordinates(dev);
-    const portAreaX = rackX + (isA3 ? 28 : 22);
-    const portAreaW = rackW - (isA3 ? 30 : 24);
+    const labelOffset =
+      isHalfLeft || isHalfRight ? (isA3 ? 16 : 12) : isA3 ? 28 : 22;
+    const portAreaX = devX + labelOffset;
+    const portAreaW = Math.max(8, devW - labelOffset - 1.5);
 
     for (const p of positionedPorts) {
       const px = portAreaX + ((p.xPercent ?? 50) / 100) * portAreaW;
@@ -243,8 +264,8 @@ export function exportRackToTechnicalPDF(
         doc.setFillColor(15, 23, 42);
         doc.setDrawColor(100, 116, 139);
       }
-      const boxW = isA3 ? 2.4 : 1.7;
-      const boxH = isA3 ? 1.8 : 1.3;
+      const boxW = isA3 ? 2.1 : 1.5;
+      const boxH = isA3 ? 1.7 : 1.2;
       doc.setLineWidth(0.12);
       doc.rect(px - boxW / 2, py - boxH / 2, boxW, boxH, 'FD');
     }

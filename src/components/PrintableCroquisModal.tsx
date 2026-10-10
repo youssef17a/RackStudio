@@ -74,21 +74,47 @@ export const PrintableCroquisModal: React.FC<PrintableCroquisModalProps> = ({
   const [showFreePorts, setShowFreePorts] = useState<boolean>(true);
 
   const portConnMap = buildPortConnectionMap(rack);
-  const sortedDevices = [...rack.devices].sort((a, b) => b.uStart - a.uStart);
-  const usedU = rack.devices.reduce((acc, d) => acc + d.uSize, 0);
+  const sortedDevices = [...rack.devices].sort((a, b) => {
+    if (b.uStart !== a.uStart) return b.uStart - a.uStart;
+    const order = { left: 0, full: 1, right: 2 };
+    return order[a.shelfBay || 'full'] - order[b.shelfBay || 'full'];
+  });
+  const occupiedUSet = new Set<number>();
+  rack.devices.forEach((d) => {
+    for (let u = d.uStart; u < d.uStart + d.uSize; u++) {
+      occupiedUSet.add(u);
+    }
+  });
+  const usedU = occupiedUSet.size;
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
 
   const uSlotMap: Record<
     number,
-    { type: 'start_top' | 'covered'; device: RackDevice }
+    { type: 'start_top' | 'covered'; devices: RackDevice[] }
   > = {};
   for (const dev of rack.devices) {
     const topU = dev.uStart + dev.uSize - 1;
     for (let u = dev.uStart; u <= topU; u++) {
-      uSlotMap[u] = {
-        type: u === topU ? 'start_top' : 'covered',
-        device: dev
-      };
+      if (u === topU) {
+        const existing = uSlotMap[u];
+        const currentList =
+          existing && existing.type === 'start_top' ? existing.devices : [];
+        const sorted = [...currentList, dev].sort((a, b) => {
+          const order = { left: 0, full: 1, right: 2 };
+          return (
+            order[a.shelfBay || 'full'] - order[b.shelfBay || 'full']
+          );
+        });
+        uSlotMap[u] = {
+          type: 'start_top',
+          devices: sorted
+        };
+      } else if (!uSlotMap[u]) {
+        uSlotMap[u] = {
+          type: 'covered',
+          devices: [dev]
+        };
+      }
     }
   }
 
@@ -251,7 +277,7 @@ export const PrintableCroquisModal: React.FC<PrintableCroquisModalProps> = ({
                 {project.companyName} — {rack.name} ({rack.locationCode})
               </h1>
               <p className="text-xs text-slate-600 font-mono">
-                Proyecto: {project.projectName} · Ubicación: {project.siteAddress} · Responsable: {project.technicalContact}
+                Proyecto: {project.projectName} · Dimensiones: {rack.totalU}U ({rack.widthMm || 600}×{rack.depthMm || 1000}mm) · Ubicación: {project.siteAddress}
               </p>
             </div>
 
@@ -295,14 +321,17 @@ export const PrintableCroquisModal: React.FC<PrintableCroquisModalProps> = ({
             <div className={isLandscape ? 'col-span-4' : 'col-span-1'}>
               <div className="border-2 border-slate-900 rounded-lg overflow-hidden bg-white">
                 <div className="bg-slate-900 text-white px-3 py-1.5 flex items-center justify-between font-mono text-xs font-bold">
-                  <span>1. ALZADO FÍSICO RACK 19&quot; ({rack.totalU}U)</span>
+                  <span>1. ALZADO FÍSICO RACK 19&quot; ({rack.totalU}U · {rack.widthMm || 600}×{rack.depthMm || 1000}mm)</span>
                   <span>EIA-310-D</span>
                 </div>
 
                 <div className="divide-y divide-slate-300">
                   {Array.from(
                     { length: rack.totalU },
-                    (_, i) => rack.totalU - i
+                    (_, i) =>
+                      rack.uNumberingDirection === 'bottom-up'
+                        ? i + 1
+                        : rack.totalU - i
                   ).map((uNumber) => {
                     const slotInfo = uSlotMap[uNumber];
                     if (slotInfo && slotInfo.type === 'covered') {
@@ -310,83 +339,110 @@ export const PrintableCroquisModal: React.FC<PrintableCroquisModalProps> = ({
                     }
 
                     if (slotInfo && slotInfo.type === 'start_top') {
-                      const dev = slotInfo.device;
-                      const positionedPorts = ensureDevicePortCoordinates(dev);
-                      const shortBrand = dev.model
-                        .split('/')[0]
-                        .trim()
-                        .split(' ')[0];
-                      const connectedCount = dev.ports.filter((p) =>
-                        Boolean(portConnMap[p.id])
-                      ).length;
+                      const shelfDevices = slotInfo.devices;
+                      const maxUSize = Math.max(
+                        ...shelfDevices.map((d) => d.uSize)
+                      );
+                      const minUStart = Math.min(
+                        ...shelfDevices.map((d) => d.uStart)
+                      );
 
                       return (
                         <div
-                          key={`croquis-rack-dev-${dev.id}`}
+                          key={`croquis-rack-shelf-${uNumber}`}
                           style={{
-                            minHeight: `${Math.max(34, dev.uSize * 26)}px`
+                            minHeight: `${Math.max(34, maxUSize * 26)}px`
                           }}
                           className="flex items-stretch bg-slate-100 border-l-4 border-slate-900"
                         >
                           {/* U Rail */}
                           <div className="w-10 shrink-0 bg-slate-900 text-white font-mono text-[10px] font-bold flex flex-col items-center justify-center tabular-nums">
                             <span>U{uNumber.toString().padStart(2, '0')}</span>
-                            {dev.uSize > 1 && (
+                            {maxUSize > 1 && (
                               <span className="text-[8px] text-slate-300">
-                                ..U{dev.uStart.toString().padStart(2, '0')}
+                                ..U{minUStart.toString().padStart(2, '0')}
                               </span>
                             )}
                           </div>
 
-                          {/* Device Faceplate Summary + Graphical Mini-Map of Ports */}
-                          <div className="flex-1 p-1.5 flex flex-col justify-between gap-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1 border-b border-slate-300 pb-0.5">
-                              <div className="truncate">
-                                <span
-                                  className="inline-block w-2 h-2 rounded-full mr-1"
-                                  style={{
-                                    backgroundColor:
-                                      dev.customColor || '#0F172A'
-                                  }}
-                                />
-                                <span className="font-mono text-[11px] font-extrabold text-slate-900">
-                                  {dev.name}
-                                </span>{' '}
-                                <span className="font-mono text-[9px] text-slate-600">
-                                  ({shortBrand} · {CATEGORY_LABELS[dev.category]})
-                                </span>
-                              </div>
-                              <span className="font-mono text-[9px] font-bold text-slate-700 shrink-0">
-                                {connectedCount}/{dev.ports.length}p
-                              </span>
-                            </div>
+                          {/* 1 or 2 Side-by-Side Devices on the Same U Shelf */}
+                          <div className="flex-1 flex items-stretch divide-x-2 divide-slate-300 min-w-0">
+                            {shelfDevices.map((dev) => {
+                              const positionedPorts =
+                                ensureDevicePortCoordinates(dev);
+                              const shortBrand = dev.model
+                                .split('/')[0]
+                                .trim()
+                                .split(' ')[0];
+                              const connectedCount = dev.ports.filter((p) =>
+                                Boolean(portConnMap[p.id])
+                              ).length;
 
-                            {/* Graphical 2D Port Mini-Faceplate */}
-                            <div className="relative min-h-[26px] bg-white border border-slate-300 rounded px-1 py-0.5">
-                              {positionedPorts.map((p) => {
-                                const conn = portConnMap[p.id];
-                                const bgHex = conn
-                                  ? COLOR_HEX_MAP[conn.color]
-                                  : '#F1F5F9';
-                                return (
-                                  <span
-                                    key={`mini-pt-${p.id}`}
-                                    style={{
-                                      position: 'absolute',
-                                      left: `${p.xPercent ?? 50}%`,
-                                      top: `${p.yPercent ?? 50}%`,
-                                      transform: 'translate(-50%, -50%)',
-                                      backgroundColor: bgHex,
-                                      color: conn ? '#FFFFFF' : '#475569',
-                                      borderColor: conn ? '#0F172A' : '#CBD5E1'
-                                    }}
-                                    className="px-1 py-[1px] rounded-[2px] border font-mono text-[7px] font-bold leading-none tabular-nums"
-                                  >
-                                    {p.number.toString().padStart(2, '0')}
-                                  </span>
-                                );
-                              })}
-                            </div>
+                              return (
+                                <div
+                                  key={`croquis-shelf-cell-${dev.id}`}
+                                  className="flex-1 p-1.5 flex flex-col justify-between gap-1 min-w-0"
+                                >
+                                  <div className="flex items-center justify-between gap-1 border-b border-slate-300 pb-0.5">
+                                    <div className="truncate">
+                                      <span
+                                        className="inline-block w-2 h-2 rounded-full mr-1"
+                                        style={{
+                                          backgroundColor:
+                                            dev.customColor || '#0F172A'
+                                        }}
+                                      />
+                                      <span className="font-mono text-[10px] font-extrabold text-slate-900">
+                                        {dev.name}
+                                      </span>{' '}
+                                      {dev.shelfBay &&
+                                        dev.shelfBay !== 'full' && (
+                                          <span className="px-1 rounded bg-slate-800 text-white font-mono text-[8px]">
+                                            {dev.shelfBay === 'left'
+                                              ? 'IZQ'
+                                              : 'DER'}
+                                          </span>
+                                        )}{' '}
+                                      <span className="font-mono text-[8px] text-slate-600">
+                                        ({shortBrand})
+                                      </span>
+                                    </div>
+                                    <span className="font-mono text-[8px] font-bold text-slate-700 shrink-0">
+                                      {connectedCount}/{dev.ports.length}p
+                                    </span>
+                                  </div>
+
+                                  {/* Graphical 2D Port Mini-Faceplate */}
+                                  <div className="relative min-h-[26px] bg-white border border-slate-300 rounded px-1 py-0.5">
+                                    {positionedPorts.map((p) => {
+                                      const conn = portConnMap[p.id];
+                                      const bgHex = conn
+                                        ? COLOR_HEX_MAP[conn.color]
+                                        : '#F1F5F9';
+                                      return (
+                                        <span
+                                          key={`mini-pt-${p.id}`}
+                                          style={{
+                                            position: 'absolute',
+                                            left: `${p.xPercent ?? 50}%`,
+                                            top: `${p.yPercent ?? 50}%`,
+                                            transform: 'translate(-50%, -50%)',
+                                            backgroundColor: bgHex,
+                                            color: conn ? '#FFFFFF' : '#475569',
+                                            borderColor: conn
+                                              ? '#0F172A'
+                                              : '#CBD5E1'
+                                          }}
+                                          className="px-1 py-[1px] rounded-[2px] border font-mono text-[7px] font-bold leading-none tabular-nums"
+                                        >
+                                          {p.number.toString().padStart(2, '0')}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
@@ -452,6 +508,11 @@ export const PrintableCroquisModal: React.FC<PrintableCroquisModalProps> = ({
                             ? `-U${(dev.uStart + dev.uSize - 1)
                                 .toString()
                                 .padStart(2, '0')}`
+                            : ''}
+                          {dev.shelfBay === 'left'
+                            ? ' (Bandeja Izq.)'
+                            : dev.shelfBay === 'right'
+                            ? ' (Bandeja Der.)'
                             : ''}
                         </span>
                         <span className="font-display text-sm font-extrabold">

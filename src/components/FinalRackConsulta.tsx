@@ -168,15 +168,31 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
 
   const uSlotMap: Record<
     number,
-    { type: 'start_top' | 'covered'; device: RackDevice }
+    { type: 'start_top' | 'covered'; devices: RackDevice[] }
   > = {};
   for (const dev of rack.devices) {
     const topU = dev.uStart + dev.uSize - 1;
     for (let u = dev.uStart; u <= topU; u++) {
-      uSlotMap[u] = {
-        type: u === topU ? 'start_top' : 'covered',
-        device: dev
-      };
+      if (u === topU) {
+        const existing = uSlotMap[u];
+        const currentList =
+          existing && existing.type === 'start_top' ? existing.devices : [];
+        const sorted = [...currentList, dev].sort((a, b) => {
+          const order = { left: 0, full: 1, right: 2 };
+          return (
+            order[a.shelfBay || 'full'] - order[b.shelfBay || 'full']
+          );
+        });
+        uSlotMap[u] = {
+          type: 'start_top',
+          devices: sorted
+        };
+      } else if (!uSlotMap[u]) {
+        uSlotMap[u] = {
+          type: 'covered',
+          devices: [dev]
+        };
+      }
     }
   }
 
@@ -186,7 +202,13 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
     );
   };
 
-  const usedU = rack.devices.reduce((acc, d) => acc + d.uSize, 0);
+  const occupiedUSet = new Set<number>();
+  rack.devices.forEach((d) => {
+    for (let u = d.uStart; u < d.uStart + d.uSize; u++) {
+      occupiedUSet.add(u);
+    }
+  });
+  const usedU = occupiedUSet.size;
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
 
   // Filter cables for the right-side quick directory
@@ -344,12 +366,15 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
         <div className="xl:col-span-8">
           <div
             ref={rackContainerRef}
-            className="relative bg-[#0B0F17] border-2 border-slate-800 rounded-xl p-4 shadow-2xl select-none"
+            style={{
+              borderColor: rack.frameColor || '#1e293b'
+            }}
+            className="relative bg-[#0B0F17] border-2 rounded-xl p-4 shadow-2xl select-none"
           >
             {/* Rack Top Plate */}
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 mb-3 bg-slate-900 border border-slate-800 rounded text-xs font-mono text-slate-300">
               <span>
-                PLANO FINAL DE ARMARIADO · <strong>{project.companyName}</strong>
+                PLANO FINAL DE ARMARIADO · <strong>{project.companyName}</strong> ({rack.widthMm || 600}×{rack.depthMm || 1000}mm)
               </span>
               <span className="tabular-nums">
                 Ocupación: {usedU}/{rack.totalU}U · {rack.devices.length} Equipos · {rack.cables.length} Latiguillos ·{' '}
@@ -441,16 +466,40 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
 
             {/* Rack Units Loop */}
             <div className="divide-y divide-slate-800/70 border border-slate-800 rounded bg-[#090D16] overflow-hidden">
-              {Array.from({ length: rack.totalU }, (_, i) => rack.totalU - i).map(
-                (uNumber) => {
-                  const slotInfo = uSlotMap[uNumber];
+              {Array.from(
+                { length: rack.totalU },
+                (_, i) =>
+                  rack.uNumberingDirection === 'bottom-up'
+                    ? i + 1
+                    : rack.totalU - i
+              ).map((uNumber) => {
+                const slotInfo = uSlotMap[uNumber];
 
-                  if (slotInfo && slotInfo.type === 'covered') {
-                    return null;
-                  }
+                if (slotInfo && slotInfo.type === 'covered') {
+                  return null;
+                }
 
-                  if (slotInfo && slotInfo.type === 'start_top') {
-                    const dev = slotInfo.device;
+                if (slotInfo && slotInfo.type === 'start_top') {
+                  const shelfDevices = slotInfo.devices;
+                  const isDualShelf =
+                    shelfDevices.length > 1 ||
+                    shelfDevices.some(
+                      (d) => d.shelfBay === 'left' || d.shelfBay === 'right'
+                    );
+                  const maxUSize = Math.max(...shelfDevices.map((d) => d.uSize));
+                  const minUStart = Math.min(...shelfDevices.map((d) => d.uStart));
+
+                  const rowHeightPx = Math.max(
+                    ...shelfDevices.map((dev) => {
+                      const zones = getOrganizedDeviceZones(dev);
+                      return Math.max(
+                        dev.uSize * 40,
+                        zones.maxRows * 25 + 16
+                      );
+                    })
+                  );
+
+                  const renderDeviceShelfCell = (dev: RackDevice) => {
                     const zones = getOrganizedDeviceZones(dev);
                     const hasFreeformCoords = dev.ports.some(
                       (p) =>
@@ -460,11 +509,6 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
                     const positionedPorts = hasFreeformCoords
                       ? ensureDevicePortCoordinates(dev)
                       : dev.ports;
-
-                    const rowHeightPx = Math.max(
-                      dev.uSize * 40,
-                      zones.maxRows * 25 + 16
-                    );
 
                     const shortBrand = dev.model
                       .split('/')[0]
@@ -641,126 +685,162 @@ export const FinalRackConsulta: React.FC<FinalRackConsultaProps> = ({
 
                     return (
                       <div
-                        key={`consulta-dev-${dev.id}`}
+                        key={`consulta-dev-cell-${dev.id}`}
                         style={{
-                          minHeight: `${rowHeightPx}px`,
                           background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 55%, #0F172A 100%)`
                         }}
-                        className={`relative flex items-stretch transition-colors ${
+                        className={`flex-1 px-2.5 py-1.5 flex items-stretch justify-between gap-2 min-w-0 overflow-hidden transition-colors ${
                           isEndpointDevice
                             ? 'ring-2 ring-inset ring-amber-400 z-10'
                             : ''
                         }`}
                       >
-                        {/* Left Rail */}
-                        <div className="w-10 shrink-0 bg-slate-950/90 border-r border-slate-800 flex flex-col items-center justify-center font-mono text-[11px] text-slate-400 tabular-nums">
-                          <span>U{uNumber.toString().padStart(2, '0')}</span>
-                          {dev.uSize > 1 && (
-                            <span className="text-[9px] text-slate-600">
-                              ..U{dev.uStart.toString().padStart(2, '0')}
-                            </span>
+                        <div
+                          className={`flex items-center gap-1.5 shrink-0 ${
+                            isDualShelf ? 'w-[78px]' : 'w-[92px]'
+                          }`}
+                          title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
+                        >
+                          {dev.status === 'nominal' ? (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                           )}
-                        </div>
-
-                        {/* Device Faceplate: Compact Brand + Device Type on Left, Ports on Right */}
-                        <div className="flex-1 px-2.5 py-1.5 flex items-stretch justify-between gap-2 min-w-0 overflow-hidden">
-                          <div
-                            className="flex items-center gap-1.5 shrink-0 w-[92px]"
-                            title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
-                          >
-                            {dev.status === 'nominal' ? (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                            ) : (
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                            )}
-                            <div className="min-w-0 leading-tight">
-                              <div className="font-mono text-[11px] font-bold text-white truncate">
-                                {shortBrand}
-                              </div>
-                              <div className="text-[8px] font-mono uppercase tracking-wider text-slate-300/90 truncate">
-                                {CATEGORY_LABELS[dev.category]}
-                              </div>
+                          <div className="min-w-0 leading-tight">
+                            <div className="font-mono text-[11px] font-bold text-white truncate">
+                              {shortBrand}
+                            </div>
+                            <div className="text-[8px] font-mono uppercase tracking-wider text-slate-300/90 truncate">
+                              {CATEGORY_LABELS[dev.category]}
                             </div>
                           </div>
-
-                          {/* Either Freeform Graphical Coordinates OR 3-Zone Chassis Layout */}
-                          <div
-                            className={`flex-1 relative z-30 min-w-0 ${
-                              hasFreeformCoords
-                                ? 'min-h-[30px]'
-                                : 'flex items-center justify-between gap-3'
-                            }`}
-                          >
-                            {hasFreeformCoords ? (
-                              positionedPorts.map((p) =>
-                                renderSinglePortBtn(
-                                  p,
-                                  positionedPorts.length > 24 ? 20 : 10,
-                                  true
-                                )
-                              )
-                            ) : (
-                              <>
-                                {/* Left Zone */}
-                                <div className="flex items-center">
-                                  {renderZoneBank(
-                                    zones.leftRows,
-                                    'left',
-                                    'items-start'
-                                  )}
-                                </div>
-
-                                {/* Center Zone */}
-                                {zones.centerRows.length > 0 && (
-                                  <div className="flex items-center px-2 border-x border-slate-800/70">
-                                    {renderZoneBank(
-                                      zones.centerRows,
-                                      'center',
-                                      'items-center'
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Right Zone */}
-                                <div className="flex items-center ml-auto">
-                                  {renderZoneBank(
-                                    zones.rightRows,
-                                    'right',
-                                    'items-end'
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
                         </div>
 
-                        {/* Right Rail */}
-                        <div className="w-9 shrink-0 bg-slate-950/90 border-l border-slate-800 flex items-center justify-center font-mono text-[10px] text-slate-500 tabular-nums">
-                          U{uNumber.toString().padStart(2, '0')}
+                        {/* Either Freeform Graphical Coordinates OR 3-Zone Chassis Layout */}
+                        <div
+                          className={`flex-1 relative z-30 min-w-0 ${
+                            hasFreeformCoords
+                              ? 'min-h-[30px]'
+                              : 'flex items-center justify-between gap-2'
+                          }`}
+                        >
+                          {hasFreeformCoords ? (
+                            positionedPorts.map((p) =>
+                              renderSinglePortBtn(
+                                p,
+                                positionedPorts.length > 24 ? 20 : 10,
+                                true
+                              )
+                            )
+                          ) : (
+                            <>
+                              {/* Left Zone */}
+                              <div className="flex items-center">
+                                {renderZoneBank(
+                                  zones.leftRows,
+                                  'left',
+                                  'items-start'
+                                )}
+                              </div>
+
+                              {/* Center Zone */}
+                              {zones.centerRows.length > 0 && (
+                                <div className="flex items-center px-2 border-x border-slate-800/70">
+                                  {renderZoneBank(
+                                    zones.centerRows,
+                                    'center',
+                                    'items-center'
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Right Zone */}
+                              <div className="flex items-center ml-auto">
+                                {renderZoneBank(
+                                  zones.rightRows,
+                                  'right',
+                                  'items-end'
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     );
-                  }
+                  };
 
-                  // Empty U Slot (Compact in consultation mode)
                   return (
                     <div
-                      key={`consulta-empty-${uNumber}`}
-                      className="h-[22px] flex items-center justify-between bg-[#090D16]/70"
+                      key={`consulta-shelf-${uNumber}`}
+                      style={{
+                        minHeight: `${rowHeightPx}px`
+                      }}
+                      className="relative flex items-stretch"
                     >
-                      <div className="w-11 h-full bg-slate-950/40 border-r border-slate-800/50 flex items-center justify-center font-mono text-[9px] text-slate-700 tabular-nums">
-                        U{uNumber.toString().padStart(2, '0')}
+                      {/* Left Rail */}
+                      <div className="w-10 shrink-0 bg-slate-950/90 border-r border-slate-800 flex flex-col items-center justify-center font-mono text-[11px] text-slate-400 tabular-nums">
+                        <span>U{uNumber.toString().padStart(2, '0')}</span>
+                        {maxUSize > 1 && (
+                          <span className="text-[9px] text-slate-600">
+                            ..U{minUStart.toString().padStart(2, '0')}
+                          </span>
+                        )}
                       </div>
-                      <div className="flex-1 px-3 text-[9px] font-mono text-slate-800">
-                        —
+
+                      {/* 1 Full-Width Device OR 2 Half-Width Devices on the Same U Shelf */}
+                      <div className="flex-1 flex items-stretch divide-x-2 divide-slate-800 min-w-0">
+                        {isDualShelf ? (
+                          (['left', 'right'] as const).map((baySide) => {
+                            const bayDev = shelfDevices.find(
+                              (d) =>
+                                d.shelfBay === baySide ||
+                                (shelfDevices.length === 1 &&
+                                  !d.shelfBay &&
+                                  baySide === 'left')
+                            );
+                            if (bayDev) {
+                              return renderDeviceShelfCell(bayDev);
+                            }
+                            return (
+                              <div
+                                key={`empty-consulta-bay-${uNumber}-${baySide}`}
+                                className="flex-1 px-3 flex items-center justify-center bg-slate-950/50 text-[10px] font-mono text-slate-600"
+                              >
+                                Hueco libre ({baySide === 'left' ? 'Izquierda' : 'Derecha'})
+                              </div>
+                            );
+                          })
+                        ) : (
+                          renderDeviceShelfCell(shelfDevices[0])
+                        )}
                       </div>
-                      <div className="w-9 h-full bg-slate-950/40 border-l border-slate-800/50 flex items-center justify-center font-mono text-[9px] text-slate-700 tabular-nums">
+
+                      {/* Right Rail */}
+                      <div className="w-9 shrink-0 bg-slate-950/90 border-l border-slate-800 flex items-center justify-center font-mono text-[10px] text-slate-500 tabular-nums">
                         U{uNumber.toString().padStart(2, '0')}
                       </div>
                     </div>
                   );
                 }
-              )}
+
+                // Empty U Slot (Compact in consultation mode)
+                return (
+                  <div
+                    key={`consulta-empty-${uNumber}`}
+                    className="h-[22px] flex items-center justify-between bg-[#090D16]/70"
+                  >
+                    <div className="w-11 h-full bg-slate-950/40 border-r border-slate-800/50 flex items-center justify-center font-mono text-[9px] text-slate-700 tabular-nums">
+                      U{uNumber.toString().padStart(2, '0')}
+                    </div>
+                    <div className="flex-1 px-3 text-[9px] font-mono text-slate-800">
+                      —
+                    </div>
+                    <div className="w-9 h-full bg-slate-950/40 border-l border-slate-800/50 flex items-center justify-center font-mono text-[9px] text-slate-700 tabular-nums">
+                      U{uNumber.toString().padStart(2, '0')}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

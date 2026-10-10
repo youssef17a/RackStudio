@@ -8,7 +8,8 @@ import {
   FileDown,
   ArrowRight,
   MapPin,
-  Mail
+  Mail,
+  Sliders
 } from 'lucide-react';
 import { CompanyProject, RackUnit } from '../types';
 import { exportRackToTechnicalPDF } from '../utils/pdfExport';
@@ -20,6 +21,8 @@ interface ProjectsManagerProps {
   onSelectProjectRack: (projectId: string, rackId: string) => void;
   onUpdateProjects: (projects: CompanyProject[]) => void;
 }
+
+const RACK_U_PRESETS = [6, 9, 12, 15, 18, 22, 24, 32, 36, 42, 45, 48, 52];
 
 export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
   projects,
@@ -34,12 +37,21 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
   const [technicalContact, setTechnicalContact] = useState('administrador@amrani-lan.local');
   const [initialRackName, setInitialRackName] = useState('Rack 01 — MDF Principal');
   const [initialRackU, setInitialRackU] = useState<number>(42);
+  const [initialRackType, setInitialRackType] = useState<'floor' | 'wall' | 'open-frame' | 'custom'>('floor');
+  const [initialRackWidth, setInitialRackWidth] = useState<number>(600);
+  const [initialRackDepth, setInitialRackDepth] = useState<number>(800);
+  const [initialRackPower, setInitialRackPower] = useState<number>(3500);
 
-  // Add extra rack to existing company
+  // Add extra custom rack to existing company
   const [newRackCompanyId, setNewRackCompanyId] = useState<string | null>(null);
-  const [newRackTitle, setNewRackTitle] = useState('Rack 02 — Distribución');
+  const [newRackTitle, setNewRackTitle] = useState('Rack 02 — Armario a Medida');
   const [newRackCode, setNewRackCode] = useState('IDF-PLANTA-02');
-  const [newRackSizeU, setNewRackSizeU] = useState<number>(42);
+  const [newRackSizeU, setNewRackSizeU] = useState<number>(24);
+  const [newRackType, setNewRackType] = useState<'floor' | 'wall' | 'open-frame' | 'custom'>('wall');
+  const [newRackWidthMm, setNewRackWidthMm] = useState<number>(600);
+  const [newRackDepthMm, setNewRackDepthMm] = useState<number>(600);
+  const [newRackPowerWatts, setNewRackPowerWatts] = useState<number>(3500);
+  const [newRackFrameColor, setNewRackFrameColor] = useState<string>('#0B0F17');
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +59,7 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
 
     const newProjId = `proj-${Date.now()}`;
     const newRackId = `rack-${Date.now()}`;
+    const safeU = Math.max(4, Math.min(60, Number(initialRackU) || 42));
 
     const newProject: CompanyProject = {
       id: newProjId,
@@ -60,8 +73,12 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
           id: newRackId,
           name: initialRackName.trim() || 'Rack 01 — Principal',
           locationCode: 'MDF-01',
-          totalU: initialRackU,
-          maxPowerWatts: 3500,
+          totalU: safeU,
+          maxPowerWatts: Math.max(200, Number(initialRackPower) || 3500),
+          widthMm: initialRackWidth,
+          depthMm: initialRackDepth,
+          rackType: initialRackType,
+          frameColor: '#0B0F17',
           devices: [],
           cables: []
         }
@@ -77,12 +94,17 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
   };
 
   const handleAddRackToProject = (projectId: string) => {
+    const safeU = Math.max(4, Math.min(60, Number(newRackSizeU) || 24));
     const newRack: RackUnit = {
       id: `rack-${Date.now()}`,
-      name: newRackTitle.trim() || 'Nuevo Armario 19"',
+      name: newRackTitle.trim() || 'Nuevo Armario a Medida',
       locationCode: newRackCode.trim() || 'IDF-02',
-      totalU: newRackSizeU,
-      maxPowerWatts: 3500,
+      totalU: safeU,
+      maxPowerWatts: Math.max(200, Number(newRackPowerWatts) || 3500),
+      widthMm: newRackWidthMm,
+      depthMm: newRackDepthMm,
+      rackType: newRackType,
+      frameColor: newRackFrameColor,
       devices: [],
       cables: []
     };
@@ -121,7 +143,7 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                 Proyectos y Empresas Alojadas en Servidor
               </h2>
               <p className="text-xs text-slate-400">
-                Seleccione un armario para abrir su simulador o agregue nuevos racks por cliente.
+                Seleccione un armario para abrir su simulador o cree un Rack a Medida (de 4U a 60U, mural, suelo o bastidor abierto).
               </p>
             </div>
             <span className="font-mono text-xs text-slate-400 tabular-nums">
@@ -164,10 +186,10 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                     onClick={() =>
                       setNewRackCompanyId(newRackCompanyId === proj.id ? null : proj.id)
                     }
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                    className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-200 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
                   >
-                    <Plus className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Añadir Rack</span>
+                    <Sliders className="w-3.5 h-3.5 text-blue-400" />
+                    <span>+ Añadir Rack a Medida</span>
                   </button>
                   {projects.length > 1 && (
                     <button
@@ -182,52 +204,203 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                 </div>
               </div>
 
-              {/* Inline Add Rack Form */}
+              {/* Inline Add Custom Rack Form */}
               {newRackCompanyId === proj.id && (
-                <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-700 space-y-3">
-                  <div className="text-xs font-semibold text-white">
-                    Nuevo Armario para {proj.companyName}
+                <div className="p-4 rounded-xl bg-slate-900/95 border border-blue-500/60 space-y-3.5 shadow-xl">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <Sliders className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Diseñar Nuevo Rack Personalizado para {proj.companyName}</span>
+                    </div>
+                    <span className="font-mono text-[11px] text-blue-300">
+                      {newRackSizeU}U · {newRackWidthMm}×{newRackDepthMm}mm · {newRackPowerWatts}W
+                    </span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <input
-                      type="text"
-                      value={newRackTitle}
-                      onChange={(e) => setNewRackTitle(e.target.value)}
-                      placeholder="Nombre del Rack"
-                      className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-white"
-                    />
-                    <input
-                      type="text"
-                      value={newRackCode}
-                      onChange={(e) => setNewRackCode(e.target.value)}
-                      placeholder="Código Sala (ej. IDF-02)"
-                      className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                    />
-                    <select
-                      value={newRackSizeU}
-                      onChange={(e) => setNewRackSizeU(Number(e.target.value))}
-                      className="px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
-                    >
-                      <option value={42}>Armario 42U Estándar</option>
-                      <option value={24}>Armario 24U Mural/Medio</option>
-                      <option value={48}>Armario 48U Alta Densidad</option>
-                    </select>
+
+                  {/* Quick U Presets */}
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Formatos Rápidos de Altura (U) o escriba cualquier medida exacta (4U a 60U):
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {RACK_U_PRESETS.map((uPreset) => (
+                        <button
+                          key={uPreset}
+                          type="button"
+                          onClick={() => {
+                            setNewRackSizeU(uPreset);
+                            if (uPreset <= 18) {
+                              setNewRackType('wall');
+                              setNewRackDepthMm(450);
+                            } else {
+                              setNewRackType('floor');
+                              setNewRackDepthMm(800);
+                            }
+                          }}
+                          className={`px-2 py-1 rounded font-mono text-[11px] font-bold border transition-colors cursor-pointer ${
+                            newRackSizeU === uPreset
+                              ? 'bg-blue-600 text-white border-blue-400'
+                              : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500'
+                          }`}
+                        >
+                          {uPreset}U
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setNewRackCompanyId(null)}
-                      className="px-3 py-1 text-xs text-slate-400 hover:text-white cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleAddRackToProject(proj.id)}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      Crear y Abrir Armario
-                    </button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-xs">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Nombre del Armario Rack
+                      </label>
+                      <input
+                        type="text"
+                        value={newRackTitle}
+                        onChange={(e) => setNewRackTitle(e.target.value)}
+                        placeholder="Ej. Rack Mural Planta 1"
+                        className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Código Ubicación
+                      </label>
+                      <input
+                        type="text"
+                        value={newRackCode}
+                        onChange={(e) => setNewRackCode(e.target.value)}
+                        placeholder="Ej. IDF-02"
+                        className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Altura Exacta (U) [4-60]
+                      </label>
+                      <input
+                        type="number"
+                        min={4}
+                        max={60}
+                        value={newRackSizeU}
+                        onChange={(e) =>
+                          setNewRackSizeU(
+                            Math.max(4, Math.min(60, Number(e.target.value) || 12))
+                          )
+                        }
+                        className="w-full px-2.5 py-1.5 bg-slate-950 border border-blue-500/70 rounded text-xs font-mono font-bold text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Tipo de Bastidor
+                      </label>
+                      <select
+                        value={newRackType}
+                        onChange={(e) =>
+                          setNewRackType(
+                            e.target.value as 'floor' | 'wall' | 'open-frame' | 'custom'
+                          )
+                        }
+                        className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs text-white"
+                      >
+                        <option value="floor">Armario Suelo Cerrado</option>
+                        <option value="wall">Mural de Pared</option>
+                        <option value="open-frame">Bastidor Abierto 2/4 Postes</option>
+                        <option value="custom">A Medida Especial</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Ancho Exterior (mm)
+                      </label>
+                      <select
+                        value={newRackWidthMm}
+                        onChange={(e) => setNewRackWidthMm(Number(e.target.value))}
+                        className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
+                      >
+                        <option value={600}>600 mm (Estándar 19&quot;)</option>
+                        <option value={800}>800 mm (Con Pasacables)</option>
+                        <option value={540}>540 mm (Compacto Mural)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Fondo Exterior (mm)
+                      </label>
+                      <select
+                        value={newRackDepthMm}
+                        onChange={(e) => setNewRackDepthMm(Number(e.target.value))}
+                        className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
+                      >
+                        <option value={450}>450 mm (Mural Corto)</option>
+                        <option value={600}>600 mm (Comunicaciones)</option>
+                        <option value={800}>800 mm (Servidores/CPD)</option>
+                        <option value={1000}>1000 mm (Gran Fondo)</option>
+                        <option value={1200}>1200 mm (Alta Densidad)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">
+                        Potencia Máx. (W)
+                      </label>
+                      <input
+                        type="number"
+                        min={200}
+                        max={25000}
+                        step={100}
+                        value={newRackPowerWatts}
+                        onChange={(e) =>
+                          setNewRackPowerWatts(Number(e.target.value) || 3500)
+                        }
+                        className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-400">Color del Armario:</span>
+                      {[
+                        { hex: '#0B0F17', name: 'Negro Grafito' },
+                        { hex: '#1E293B', name: 'Gris Antracita' },
+                        { hex: '#172554', name: 'Azul Industrial' },
+                        { hex: '#27272A', name: 'Acero Oscuro' }
+                      ].map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          onClick={() => setNewRackFrameColor(c.hex)}
+                          style={{ backgroundColor: c.hex }}
+                          title={c.name}
+                          className={`w-5 h-5 rounded border cursor-pointer ${
+                            newRackFrameColor === c.hex
+                              ? 'border-white ring-2 ring-blue-400'
+                              : 'border-slate-600'
+                          }`}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewRackCompanyId(null)}
+                        className="px-3 py-1 text-xs text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddRackToProject(proj.id)}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        Crear y Abrir Rack ({newRackSizeU}U)
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -237,7 +410,13 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                 {proj.racks.map((r) => {
                   const isCurrent =
                     proj.id === activeProjectId && r.id === activeRackId;
-                  const usedU = r.devices.reduce((acc, d) => acc + d.uSize, 0);
+                  const occupiedUSet = new Set<number>();
+                  r.devices.forEach((d) => {
+                    for (let u = d.uStart; u < d.uStart + d.uSize; u++) {
+                      occupiedUSet.add(u);
+                    }
+                  });
+                  const usedU = occupiedUSet.size;
 
                   return (
                     <div
@@ -254,10 +433,10 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                             {r.name}
                           </span>
                           <span className="font-mono text-[11px] text-slate-400">
-                            {r.locationCode}
+                            {r.locationCode} · {r.totalU}U
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-slate-400 mt-2 font-mono tabular-nums">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-2 font-mono tabular-nums">
                           <span className="flex items-center gap-1">
                             <Server className="w-3.5 h-3.5 text-slate-500" />
                             {r.devices.length} equipos ({usedU}/{r.totalU}U)
@@ -267,6 +446,14 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                             <Cable className="w-3.5 h-3.5 text-slate-500" />
                             {r.cables.length} cables
                           </span>
+                          {r.widthMm && r.depthMm && (
+                            <>
+                              <span>·</span>
+                              <span className="text-[11px] text-slate-500">
+                                {r.widthMm}×{r.depthMm}mm
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -303,7 +490,7 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
             Registrar Nueva Empresa / Proyecto
           </h3>
           <p className="text-xs text-slate-400 mb-4">
-            Cree un nuevo proyecto independiente con su propio armario de comunicaciones.
+            Cree un nuevo proyecto independiente con su propio armario de comunicaciones a medida.
           </p>
 
           <form onSubmit={handleCreateProject} className="space-y-3.5 text-xs">
@@ -348,31 +535,108 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 space-y-2.5">
+              <div className="font-semibold text-slate-200 flex items-center justify-between">
+                <span>Rack Principal a Medida</span>
+                <span className="font-mono text-[11px] text-blue-400">{initialRackU}U</span>
+              </div>
+
               <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Primer Rack
+                <label className="block text-[11px] text-slate-400 mb-1">
+                  Nombre del Armario
                 </label>
                 <input
                   type="text"
                   value={initialRackName}
                   onChange={(e) => setInitialRackName(e.target.value)}
-                  className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
+
               <div>
-                <label className="block text-slate-300 font-medium mb-1">
-                  Altura en U
+                <label className="block text-[11px] text-slate-400 mb-1">
+                  Altura en U (elija formato o escriba de 4U a 60U)
                 </label>
-                <select
-                  value={initialRackU}
-                  onChange={(e) => setInitialRackU(Number(e.target.value))}
-                  className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:border-blue-500"
-                >
-                  <option value={42}>42U (Estándar)</option>
-                  <option value={24}>24U (Mural)</option>
-                  <option value={48}>48U ( datacenter)</option>
-                </select>
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {[6, 9, 12, 18, 24, 36, 42, 48].map((uVal) => (
+                    <button
+                      key={uVal}
+                      type="button"
+                      onClick={() => setInitialRackU(uVal)}
+                      className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border cursor-pointer ${
+                        initialRackU === uVal
+                          ? 'bg-blue-600 text-white border-blue-400'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      {uVal}U
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    min={4}
+                    max={60}
+                    value={initialRackU}
+                    onChange={(e) =>
+                      setInitialRackU(
+                        Math.max(4, Math.min(60, Number(e.target.value) || 42))
+                      )
+                    }
+                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded text-white font-mono"
+                  />
+                  <select
+                    value={initialRackType}
+                    onChange={(e) =>
+                      setInitialRackType(
+                        e.target.value as 'floor' | 'wall' | 'open-frame' | 'custom'
+                      )
+                    }
+                    className="w-full px-2 py-1.5 bg-slate-950 border border-slate-700 rounded text-white text-[11px]"
+                  >
+                    <option value="floor">Suelo Cerrado</option>
+                    <option value="wall">Mural Pared</option>
+                    <option value="open-frame">Bastidor Abierto</option>
+                    <option value="custom">A Medida</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">
+                    Ancho (mm)
+                  </label>
+                  <input
+                    type="number"
+                    value={initialRackWidth}
+                    onChange={(e) => setInitialRackWidth(Number(e.target.value) || 600)}
+                    className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white font-mono text-[11px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">
+                    Fondo (mm)
+                  </label>
+                  <input
+                    type="number"
+                    value={initialRackDepth}
+                    onChange={(e) => setInitialRackDepth(Number(e.target.value) || 800)}
+                    className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white font-mono text-[11px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-400 mb-0.5">
+                    Potencia (W)
+                  </label>
+                  <input
+                    type="number"
+                    value={initialRackPower}
+                    onChange={(e) => setInitialRackPower(Number(e.target.value) || 3500)}
+                    className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-white font-mono text-[11px]"
+                  />
+                </div>
               </div>
             </div>
 
@@ -393,7 +657,7 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
               className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg flex items-center justify-center gap-2 transition-colors cursor-pointer whitespace-nowrap shrink-0 mt-2"
             >
               <Plus className="w-4 h-4" />
-              <span>Crear Proyecto en Ubuntu Server</span>
+              <span>Crear Proyecto con Rack ({initialRackU}U)</span>
             </button>
           </form>
         </div>

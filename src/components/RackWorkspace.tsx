@@ -18,7 +18,9 @@ import {
   Palette,
   Layers,
   ArrowUpDown,
-  Move
+  Move,
+  Columns2,
+  Settings2
 } from 'lucide-react';
 import {
   CompanyProject,
@@ -32,7 +34,8 @@ import {
   PortZone,
   DevicePort,
   PortNumberingOrder,
-  CustomPortBlockSpec
+  CustomPortBlockSpec,
+  ShelfBay
 } from '../types';
 import {
   HARDWARE_CATALOG,
@@ -118,6 +121,35 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const [showCablesOverlay, setShowCablesOverlay] = useState<boolean>(true);
   const [cableFilterColor, setCableFilterColor] = useState<CableColor | 'all'>('all');
 
+  // Custom Rack Configurator Modal State
+  const [showRackCustomizer, setShowRackCustomizer] = useState<boolean>(false);
+  const [editRackName, setEditRackName] = useState<string>(rack.name);
+  const [editRackCode, setEditRackCode] = useState<string>(rack.locationCode);
+  const [editRackTotalU, setEditRackTotalU] = useState<number>(rack.totalU);
+  const [editRackWidthMm, setEditRackWidthMm] = useState<number>(rack.widthMm || 600);
+  const [editRackDepthMm, setEditRackDepthMm] = useState<number>(rack.depthMm || 800);
+  const [editRackType, setEditRackType] = useState<'floor' | 'wall' | 'open-frame' | 'custom'>(
+    rack.rackType || 'floor'
+  );
+  const [editRackPower, setEditRackPower] = useState<number>(rack.maxPowerWatts || 3500);
+  const [editRackColor, setEditRackColor] = useState<string>(rack.frameColor || '#0B0F17');
+  const [editRackUDir, setEditRackUDir] = useState<'bottom-up' | 'top-down'>(
+    rack.uNumberingDirection || 'bottom-up'
+  );
+
+  // Sync local rack customizer state when switching active rack
+  useEffect(() => {
+    setEditRackName(rack.name);
+    setEditRackCode(rack.locationCode);
+    setEditRackTotalU(rack.totalU);
+    setEditRackWidthMm(rack.widthMm || 600);
+    setEditRackDepthMm(rack.depthMm || 800);
+    setEditRackType(rack.rackType || 'floor');
+    setEditRackPower(rack.maxPowerWatts || 3500);
+    setEditRackColor(rack.frameColor || '#0B0F17');
+    setEditRackUDir(rack.uNumberingDirection || 'bottom-up');
+  }, [rack.id]);
+
   // Graphical Freeform Port Dragging Mode (Directly inside Rack + Custom Builder)
   const [graphicalPortMoveMode, setGraphicalPortMoveMode] = useState<boolean>(false);
   const [draggingRackPort, setDraggingRackPort] = useState<{
@@ -154,6 +186,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const [customDevCategory, setCustomDevCategory] = useState<DeviceCategory>('router');
   const [customDevUStart, setCustomDevUStart] = useState<number>(10);
   const [customDevUSize, setCustomDevUSize] = useState<number>(1);
+  const [customDevShelfBay, setCustomDevShelfBay] = useState<ShelfBay>('full');
   const [customDevColor, setCustomDevColor] = useState<string>('#0369A1');
   const [customDevIp, setCustomDevIp] = useState<string>('192.168.1.1/24');
   const [customDevWatts, setCustomDevWatts] = useState<number>(45);
@@ -224,10 +257,12 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     }, 3500);
   };
 
+  // Checks if a U range is available for a given shelfBay ('full' | 'left' | 'right')
   const isURangeAvailable = (
     uStart: number,
     uSize: number,
-    ignoreDeviceId?: string | null
+    ignoreDeviceId?: string | null,
+    targetBay: ShelfBay = 'full'
   ): boolean => {
     const uEnd = uStart + uSize - 1;
     if (uStart < 1 || uEnd > rack.totalU) return false;
@@ -235,30 +270,95 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     for (const dev of rack.devices) {
       if (ignoreDeviceId && dev.id === ignoreDeviceId) continue;
       const devEnd = dev.uStart + dev.uSize - 1;
-      const overlaps = !(uEnd < dev.uStart || uStart > devEnd);
-      if (overlaps) return false;
+      const overlapsU = !(uEnd < dev.uStart || uStart > devEnd);
+      if (!overlapsU) continue;
+
+      const existingBay: ShelfBay = dev.shelfBay || 'full';
+      if (targetBay === 'full' || existingBay === 'full') {
+        return false;
+      }
+      if (targetBay === existingBay) {
+        return false;
+      }
     }
     return true;
   };
 
-  const findFirstAvailableUFromTop = (uSize: number): number | null => {
+  const findFirstAvailableUFromTop = (
+    uSize: number,
+    targetBay: ShelfBay = 'full'
+  ): number | null => {
     for (let u = rack.totalU - uSize + 1; u >= 1; u--) {
-      if (isURangeAvailable(u, uSize, null)) {
+      if (isURangeAvailable(u, uSize, null, targetBay)) {
         return u;
       }
     }
     return null;
   };
 
-  const handleInstallTemplateAtU = (template: HardwareTemplate, targetU: number) => {
-    if (!isURangeAvailable(targetU, template.uSize, null)) {
-      showNotice(
-        `No hay espacio libre en U${targetU} (requiere ${template.uSize}U contiguos).`
-      );
-      return;
+  const handleInstallTemplateAtU = (
+    template: HardwareTemplate,
+    targetU: number,
+    preferredBay?: ShelfBay
+  ) => {
+    // Check if there is already a single device at targetU that can share the shelf (2 devices on same U!)
+    const overlappingDevices = rack.devices.filter((d) => {
+      const dEnd = d.uStart + d.uSize - 1;
+      const tEnd = targetU + template.uSize - 1;
+      return !(tEnd < d.uStart || targetU > dEnd);
+    });
+
+    let updatedExistingDevices = [...rack.devices];
+    let assignedBay: ShelfBay = preferredBay || 'full';
+
+    if (preferredBay && preferredBay !== 'full') {
+      if (!isURangeAvailable(targetU, template.uSize, null, preferredBay)) {
+        // If existing is 'full' and single 1U device, convert it to the opposite half-shelf automatically!
+        if (
+          overlappingDevices.length === 1 &&
+          overlappingDevices[0].uStart === targetU &&
+          overlappingDevices[0].uSize === template.uSize
+        ) {
+          const otherBay: ShelfBay = preferredBay === 'left' ? 'right' : 'left';
+          updatedExistingDevices = rack.devices.map((d) =>
+            d.id === overlappingDevices[0].id ? { ...d, shelfBay: otherBay } : d
+          );
+          assignedBay = preferredBay;
+        } else {
+          showNotice(
+            `La bandeja ${preferredBay === 'left' ? 'Izquierda' : 'Derecha'} en U${targetU} ya está ocupada.`
+          );
+          return;
+        }
+      }
+    } else if (!isURangeAvailable(targetU, template.uSize, null, 'full')) {
+      // User dropped or installed onto an already occupied U slot!
+      // If there's 1 device at that U with the same uSize, automatically place them side-by-side on the same shelf!
+      if (
+        overlappingDevices.length === 1 &&
+        overlappingDevices[0].uStart === targetU &&
+        overlappingDevices[0].uSize === template.uSize &&
+        template.category !== 'patchpanel'
+      ) {
+        const existingDev = overlappingDevices[0];
+        const existingBay = existingDev.shelfBay || 'full';
+        if (existingBay === 'full' || existingBay === 'left') {
+          updatedExistingDevices = rack.devices.map((d) =>
+            d.id === existingDev.id ? { ...d, shelfBay: 'left' } : d
+          );
+          assignedBay = 'right';
+        } else {
+          assignedBay = 'left';
+        }
+      } else {
+        showNotice(
+          `No hay espacio libre en U${targetU} (máximo 2 dispositivos en la misma estantería U).`
+        );
+        return;
+      }
     }
 
-    if (template.category === 'patchpanel') {
+    if (template.category === 'patchpanel' && assignedBay === 'full') {
       const sameCount =
         rack.devices.filter((d) => d.category === 'patchpanel').length + 1;
       const initialRows =
@@ -281,13 +381,23 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     const sameCategoryCount =
       rack.devices.filter((d) => d.category === template.category).length + 1;
     const newDevice = createDeviceFromTemplate(template, targetU, sameCategoryCount);
+    newDevice.shelfBay = assignedBay;
+
     const updatedRack: RackUnit = {
       ...rack,
-      devices: [...rack.devices, newDevice]
+      devices: [...updatedExistingDevices, newDevice]
     };
     onUpdateRack(updatedRack);
     setSelectedDeviceId(newDevice.id);
-    showNotice(`Instalado ${newDevice.name} en posición U${targetU}`);
+    if (assignedBay !== 'full') {
+      showNotice(
+        `Compartiendo estantería U${targetU}: Instalado ${newDevice.name} en bandeja ${
+          assignedBay === 'left' ? 'IZQUIERDA (1/2)' : 'DERECHA (2/2)'
+        }`
+      );
+    } else {
+      showNotice(`Instalado ${newDevice.name} en posición U${targetU}`);
+    }
   };
 
   const handleConfirmPatchPanelInstall = (e: React.FormEvent) => {
@@ -484,13 +594,41 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   const handleCreateCustomDevice = (e: React.FormEvent) => {
     e.preventDefault();
     let targetU = customDevUStart;
-    if (!isURangeAvailable(targetU, customDevUSize, null)) {
-      const fallbackU = findFirstAvailableUFromTop(customDevUSize);
-      if (fallbackU === null) {
-        showNotice(`No hay ${customDevUSize}U libres en el armario.`);
-        return;
+    let updatedExistingDevices = [...rack.devices];
+    let assignedBay: ShelfBay = customDevShelfBay;
+
+    if (!isURangeAvailable(targetU, customDevUSize, null, assignedBay)) {
+      const overlapping = rack.devices.filter((d) => {
+        const dEnd = d.uStart + d.uSize - 1;
+        const tEnd = targetU + customDevUSize - 1;
+        return !(tEnd < d.uStart || targetU > dEnd);
+      });
+
+      if (
+        overlapping.length === 1 &&
+        overlapping[0].uStart === targetU &&
+        overlapping[0].uSize === customDevUSize
+      ) {
+        const existingDev = overlapping[0];
+        const existingBay = existingDev.shelfBay || 'full';
+        if (assignedBay === 'left') {
+          updatedExistingDevices = rack.devices.map((d) =>
+            d.id === existingDev.id ? { ...d, shelfBay: 'right' } : d
+          );
+        } else {
+          updatedExistingDevices = rack.devices.map((d) =>
+            d.id === existingDev.id ? { ...d, shelfBay: 'left' } : d
+          );
+          assignedBay = existingBay === 'right' ? 'left' : 'right';
+        }
+      } else {
+        const fallbackU = findFirstAvailableUFromTop(customDevUSize, assignedBay);
+        if (fallbackU === null) {
+          showNotice(`No hay ${customDevUSize}U libres en el armario.`);
+          return;
+        }
+        targetU = fallbackU;
       }
-      targetU = fallbackU;
     }
 
     const devId = `dev-custom-${Date.now()}`;
@@ -508,6 +646,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       category: customDevCategory,
       uStart: targetU,
       uSize: customDevUSize,
+      shelfBay: assignedBay,
       ipAddress: customDevIp.trim() || '192.168.1.1/24',
       managementVlan: 'VLAN 10',
       serialNumber: `SN-CUST-${Math.floor(100000 + Math.random() * 900000)}`,
@@ -521,13 +660,53 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
 
     onUpdateRack({
       ...rack,
-      devices: [...rack.devices, customDevice]
+      devices: [...updatedExistingDevices, customDevice]
     });
     setSelectedDeviceId(customDevice.id);
     setShowCustomBuilder(false);
     showNotice(
-      `Creado equipo personalizado "${customDevice.name}" (${finalPorts.length} puertos) en U${targetU}`
+      `Creado equipo personalizado "${customDevice.name}" (${finalPorts.length} puertos) en U${targetU}${
+        assignedBay !== 'full'
+          ? ` [Estantería ${assignedBay === 'left' ? 'Izquierda 1/2' : 'Derecha 2/2'}]`
+          : ''
+      }`
     );
+  };
+
+  const handleSaveCustomRackSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    const minRequiredU = rack.devices.reduce(
+      (maxU, d) => Math.max(maxU, d.uStart + d.uSize - 1),
+      4
+    );
+    const safeTotalU = Math.max(
+      minRequiredU,
+      Math.min(60, Number(editRackTotalU) || rack.totalU)
+    );
+
+    if (Number(editRackTotalU) < minRequiredU) {
+      showNotice(
+        `El armario se ajustó a ${safeTotalU}U porque hay un equipo montado en U${minRequiredU}.`
+      );
+    } else {
+      showNotice(
+        `Rack actualizado a medida: ${editRackName} (${safeTotalU}U · ${editRackWidthMm}×${editRackDepthMm}mm)`
+      );
+    }
+
+    onUpdateRack({
+      ...rack,
+      name: editRackName.trim() || rack.name,
+      locationCode: editRackCode.trim() || rack.locationCode,
+      totalU: safeTotalU,
+      widthMm: editRackWidthMm,
+      depthMm: editRackDepthMm,
+      rackType: editRackType,
+      maxPowerWatts: Math.max(200, Number(editRackPower) || 3500),
+      frameColor: editRackColor,
+      uNumberingDirection: editRackUDir
+    });
+    setShowRackCustomizer(false);
   };
 
   const applyCustomBuilderPreset = (
@@ -751,26 +930,73 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     );
   };
 
-  const handleMoveDeviceToU = (deviceId: string, targetU: number) => {
+  const handleMoveDeviceToU = (
+    deviceId: string,
+    targetU: number,
+    preferredBay?: ShelfBay
+  ) => {
     const dev = rack.devices.find((d) => d.id === deviceId);
     if (!dev) return;
-    if (dev.uStart === targetU) return;
+    if (dev.uStart === targetU && (!preferredBay || dev.shelfBay === preferredBay)) {
+      return;
+    }
 
-    if (!isURangeAvailable(targetU, dev.uSize, deviceId)) {
+    const overlapping = rack.devices.filter((d) => {
+      if (d.id === deviceId) return false;
+      const dEnd = d.uStart + d.uSize - 1;
+      const tEnd = targetU + dev.uSize - 1;
+      return !(tEnd < d.uStart || targetU > dEnd);
+    });
+
+    if (overlapping.length === 0) {
+      const nextBay: ShelfBay = preferredBay || dev.shelfBay || 'full';
+      const updatedDevices = rack.devices.map((d) =>
+        d.id === deviceId ? { ...d, uStart: targetU, shelfBay: nextBay } : d
+      );
+      onUpdateRack({
+        ...rack,
+        devices: updatedDevices
+      });
+      showNotice(`Reubicado ${dev.name} a U${targetU}`);
+      return;
+    }
+
+    // Allow sharing the same U shelf if there is only 1 existing device of the same uSize!
+    if (
+      overlapping.length === 1 &&
+      overlapping[0].uStart === targetU &&
+      overlapping[0].uSize === dev.uSize
+    ) {
+      const otherDev = overlapping[0];
+      const otherBay: ShelfBay =
+        preferredBay === 'left'
+          ? 'right'
+          : preferredBay === 'right'
+          ? 'left'
+          : otherDev.shelfBay === 'right'
+          ? 'right'
+          : 'left';
+      const targetBay: ShelfBay = otherBay === 'left' ? 'right' : 'left';
+
+      const updatedDevices = rack.devices.map((d) => {
+        if (d.id === otherDev.id) return { ...d, shelfBay: otherBay };
+        if (d.id === deviceId)
+          return { ...d, uStart: targetU, shelfBay: targetBay };
+        return d;
+      });
+      onUpdateRack({
+        ...rack,
+        devices: updatedDevices
+      });
       showNotice(
-        `Posición U${targetU} ocupada o fuera de rango para un chasis de ${dev.uSize}U.`
+        `Compartiendo estantería U${targetU}: ${otherDev.name} (Izq) + ${dev.name} (Der)`
       );
       return;
     }
 
-    const updatedDevices = rack.devices.map((d) =>
-      d.id === deviceId ? { ...d, uStart: targetU } : d
+    showNotice(
+      `Posición U${targetU} ya tiene el máximo de dispositivos o alturas incompatibles.`
     );
-    onUpdateRack({
-      ...rack,
-      devices: updatedDevices
-    });
-    showNotice(`Reubicado ${dev.name} a U${targetU}`);
   };
 
   const handleDeleteDevice = (deviceId: string) => {
@@ -931,14 +1157,26 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     };
   }, [recalculateCableCoordinates]);
 
-  const uSlotMap: Record<number, { type: 'start_top' | 'covered'; device: RackDevice }> = {};
+  // Build uSlotMap supporting up to 2 side-by-side devices on the same U shelf
+  const uSlotMap: Record<
+    number,
+    { type: 'start_top' | 'covered'; devices: RackDevice[] }
+  > = {};
   for (const dev of rack.devices) {
     const topU = dev.uStart + dev.uSize - 1;
     for (let u = dev.uStart; u <= topU; u++) {
-      uSlotMap[u] = {
-        type: u === topU ? 'start_top' : 'covered',
-        device: dev
-      };
+      if (u === topU) {
+        if (!uSlotMap[u] || uSlotMap[u].type === 'covered') {
+          uSlotMap[u] = { type: 'start_top', devices: [dev] };
+        } else {
+          uSlotMap[u].devices.push(dev);
+          uSlotMap[u].devices.sort((a, b) =>
+            (a.shelfBay === 'right' ? 1 : 0) - (b.shelfBay === 'right' ? 1 : 0)
+          );
+        }
+      } else if (!uSlotMap[u]) {
+        uSlotMap[u] = { type: 'covered', devices: [dev] };
+      }
     }
   }
 
@@ -961,7 +1199,14 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     return matchesCategory && matchesQuery;
   });
 
-  const usedU = rack.devices.reduce((acc, d) => acc + d.uSize, 0);
+  // Calculate unique U slots occupied (so 2 firewalls on the same U shelf count as 1U of rack height)
+  const occupiedUSet = new Set<number>();
+  rack.devices.forEach((d) => {
+    for (let u = d.uStart; u < d.uStart + d.uSize; u++) {
+      occupiedUSet.add(u);
+    }
+  });
+  const usedU = occupiedUSet.size;
   const totalWatts = rack.devices.reduce((acc, d) => acc + d.powerWatts, 0);
 
   // Helper to render a single port button with distinct styling per port type (PON, USB, Console, SFP+, FXS, RJ45, Power)
@@ -1334,6 +1579,11 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               <span className="text-xs font-mono text-slate-400">
                 · {rack.locationCode}
               </span>
+              {rack.widthMm && rack.depthMm && (
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300">
+                  {rack.totalU}U · {rack.widthMm}×{rack.depthMm}mm
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-400 mt-1 tabular-nums">
               <span>
@@ -1356,6 +1606,16 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Custom Rack Settings Button */}
+            <button
+              type="button"
+              onClick={() => setShowRackCustomizer(true)}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/40 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <span>Rack a Medida ({rack.totalU}U)</span>
+            </button>
+
             {/* Graphical Port Drag Mode Toggle */}
             <button
               type="button"
@@ -1378,8 +1638,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               <Move className="w-3.5 h-3.5" />
               <span>
                 {graphicalPortMoveMode
-                  ? 'Moviendo Puertos con el Cursor (Activo)'
-                  : 'Mover Puertos con el Ratón'}
+                  ? 'Moviendo Puertos (Activo)'
+                  : 'Mover Puertos'}
               </span>
             </button>
 
@@ -1388,6 +1648,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               onClick={() => {
                 const freeU = findFirstAvailableUFromTop(1) || 10;
                 setCustomDevUStart(freeU);
+                setCustomDevShelfBay('full');
                 setShowCustomBuilder(true);
               }}
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
@@ -1476,13 +1737,9 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           ) : (
             <div className="w-full p-2.5 px-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs text-slate-400 flex items-center justify-between">
               <span className="flex items-center gap-2 truncate">
-                <Cable className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <Columns2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                 <span>
-                  Leyenda Puertos: <strong className="text-emerald-400 font-mono">PON</strong> Fibra ISP ·{' '}
-                  <strong className="text-sky-400 font-mono">CON</strong> Consola Serie ·{' '}
-                  <strong className="text-indigo-400 font-mono">USB</strong> ·{' '}
-                  <strong className="text-purple-400 font-mono">TEL</strong> RJ11 Voz ·{' '}
-                  <strong className="text-cyan-400 font-mono">SFP+</strong> 10G
+                  <strong className="text-cyan-300">2 Equipos en la misma U:</strong> Arrastre un segundo equipo sobre cualquier U ocupada o pulse «+ 2º Equipo en U» para compartir bandeja.
                 </span>
               </span>
               <span className="font-mono text-[11px] text-slate-500 shrink-0">
@@ -1495,11 +1752,25 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
         {/* 19-Inch Physical Rack Chassis Container */}
         <div
           ref={rackContainerRef}
-          className="relative bg-[#0B0F17] border-2 border-slate-800 rounded-xl p-3 shadow-2xl select-none"
+          style={{
+            backgroundColor: rack.frameColor || '#0B0F17'
+          }}
+          className="relative border-2 border-slate-800 rounded-xl p-3 shadow-2xl select-none"
         >
           {/* Top Rack Bezel Plate */}
           <div className="flex items-center justify-between px-4 py-1.5 mb-2 bg-slate-900/90 border border-slate-800 rounded text-[11px] font-mono text-slate-400">
-            <span>CHASSIS EIA-310-D · 19&quot; STANDARD RACK</span>
+            <span>
+              {rack.rackType === 'wall'
+                ? 'ARMARIO MURAL 19"'
+                : rack.rackType === 'open-frame'
+                ? 'BASTIDOR ABIERTO 19"'
+                : rack.rackType === 'custom'
+                ? 'RACK PERSONALIZADO A MEDIDA'
+                : 'CHASSIS EIA-310-D · 19" RACK'}{' '}
+              {rack.widthMm && rack.depthMm
+                ? `(${rack.widthMm}×${rack.depthMm}mm)`
+                : ''}
+            </span>
             <span>{project.companyName.toUpperCase()}</span>
             <span>{rack.totalU} UNIDADES (U)</span>
           </div>
@@ -1591,20 +1862,45 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             </svg>
           )}
 
-          {/* Rack U Slots Loop (Top U down to U1) */}
+          {/* Rack U Slots Loop (Supports Bottom-Up U42->U1 or Top-Down U1->U42) */}
           <div className="divide-y divide-slate-800/70 border border-slate-800 rounded bg-[#090D16] overflow-hidden">
-            {Array.from({ length: rack.totalU }, (_, i) => rack.totalU - i).map(
-              (uNumber) => {
-                const slotInfo = uSlotMap[uNumber];
+            {Array.from({ length: rack.totalU }, (_, i) =>
+              rack.uNumberingDirection === 'top-down' ? i + 1 : rack.totalU - i
+            ).map((uNumber) => {
+              const slotInfo = uSlotMap[uNumber];
 
-                if (slotInfo && slotInfo.type === 'covered') {
-                  return null;
-                }
+              if (slotInfo && slotInfo.type === 'covered') {
+                return null;
+              }
 
-                if (slotInfo && slotInfo.type === 'start_top') {
-                  const dev = slotInfo.device;
+              if (slotInfo && slotInfo.type === 'start_top') {
+                const slotDevices = slotInfo.devices;
+                const isDualShelf =
+                  slotDevices.length > 1 ||
+                  (slotDevices.length === 1 &&
+                    slotDevices[0].shelfBay &&
+                    slotDevices[0].shelfBay !== 'full');
+
+                const maxUHeight = Math.max(
+                  ...slotDevices.map((d) => d.uSize),
+                  1
+                );
+                const maxZoneRows = Math.max(
+                  ...slotDevices.map((d) => getOrganizedDeviceZones(d).maxRows),
+                  1
+                );
+                const rowHeightPx = Math.max(
+                  maxUHeight * 38,
+                  maxZoneRows * 24 + 16
+                );
+
+                // Helper to render one device chassis (either full 19" width or 50% shelf bay)
+                const renderSingleDeviceFaceplate = (
+                  dev: RackDevice,
+                  isHalfBay: boolean
+                ) => {
                   const isSelected = selectedDeviceId === dev.id;
-                  const { leftRows, centerRows, rightRows, maxRows } =
+                  const { leftRows, centerRows, rightRows } =
                     getOrganizedDeviceZones(dev);
 
                   const hasFreeformCoords = dev.ports.some(
@@ -1617,11 +1913,6 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   const positionedPorts = useFreeformCanvas
                     ? ensureDevicePortCoordinates(dev)
                     : dev.ports;
-
-                  const rowHeightPx = Math.max(
-                    dev.uSize * 38,
-                    maxRows * 24 + 14
-                  );
 
                   const shortBrand = dev.model
                     .split('/')[0]
@@ -1641,11 +1932,12 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       ? '#1E293B'
                       : '#78350F';
 
-                  const activeChassisColor = dev.customColor || defaultCategoryColor;
+                  const activeChassisColor =
+                    dev.customColor || defaultCategoryColor;
 
                   return (
                     <div
-                      key={`u-dev-${dev.id}`}
+                      key={`dev-bay-${dev.id}`}
                       draggable={!graphicalPortMoveMode}
                       onDragStart={(e) => {
                         if (graphicalPortMoveMode) {
@@ -1660,163 +1952,163 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         setDraggedDeviceId(null);
                         setHoverU(null);
                       }}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setSelectedDeviceId(dev.id);
                         setSelectedCableId(null);
                       }}
                       style={{
-                        minHeight: `${rowHeightPx}px`,
-                        background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 55%, #0F172A 100%)`
+                        background: `linear-gradient(90deg, ${activeChassisColor}E6 0%, #0F172A 60%, #0F172A 100%)`
                       }}
-                      className={`relative flex items-stretch transition-colors cursor-pointer ${
+                      className={`relative flex-1 min-w-0 px-2 py-1.5 flex items-stretch justify-between gap-1.5 overflow-hidden transition-colors cursor-pointer ${
                         isSelected
                           ? 'ring-2 ring-inset ring-blue-400 z-10'
                           : 'hover:brightness-110'
                       }`}
                     >
-                      {/* Left Rack Rail */}
-                      <div className="w-9 shrink-0 bg-slate-950/90 border-r border-slate-800 flex flex-col items-center justify-center font-mono text-[10px] text-slate-400 tabular-nums">
-                        <span>{uNumber.toString().padStart(2, '0')}</span>
-                        {dev.uSize > 1 && (
-                          <span className="text-[9px] text-slate-600">
-                            ..{dev.uStart.toString().padStart(2, '0')}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Device Chassis Faceplate: Brand + Type Badge + Graphical Port Area */}
-                      <div className="flex-1 px-2 py-1.5 flex items-stretch justify-between gap-2 min-w-0 overflow-hidden">
-                        {/* Minimal Brand & Type Badge */}
-                        <div
-                          className="flex items-center gap-1 shrink-0 w-[86px]"
-                          title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
-                        >
-                          <GripVertical className="w-3 h-3 text-slate-400 cursor-grab shrink-0" />
-                          <div className="min-w-0 leading-tight">
-                            <div className="font-mono text-[10px] font-bold text-white truncate">
-                              {shortBrand}
-                            </div>
-                            <div className="text-[8px] font-mono uppercase tracking-wider text-slate-300/90 truncate">
-                              {CATEGORY_LABELS[dev.category]}
-                            </div>
+                      {/* Brand + Type + Optional Half-Shelf Badge */}
+                      <div
+                        className={`flex items-center gap-1 shrink-0 ${
+                          isHalfBay ? 'w-[70px]' : 'w-[86px]'
+                        }`}
+                        title={`${dev.name} — ${dev.model} (${dev.ipAddress})`}
+                      >
+                        <GripVertical className="w-3 h-3 text-slate-400 cursor-grab shrink-0" />
+                        <div className="min-w-0 leading-tight">
+                          <div className="font-mono text-[10px] font-bold text-white truncate">
+                            {isHalfBay ? dev.name : shortBrand}
+                          </div>
+                          <div className="text-[8px] font-mono uppercase tracking-wider text-slate-300/90 truncate flex items-center gap-1">
+                            <span>{CATEGORY_LABELS[dev.category]}</span>
                           </div>
                         </div>
-
-                        {/* Interactive Port Canvas: Either 2D Freeform Dragging Canvas OR 3-Zone Auto Layout */}
-                        <div
-                          ref={(el) => {
-                            faceplateCanvasRefs.current[dev.id] = el;
-                          }}
-                          className={`flex-1 relative z-30 min-w-0 ${
-                            useFreeformCanvas
-                              ? 'min-h-[30px]'
-                              : 'flex items-center justify-between gap-2'
-                          } ${
-                            graphicalPortMoveMode
-                              ? 'bg-slate-950/45 border border-dashed border-amber-400/60 rounded'
-                              : ''
-                          }`}
-                        >
-                          {useFreeformCanvas ? (
-                            <>
-                              {graphicalPortMoveMode && (
-                                <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-2 text-[8px] font-mono uppercase text-amber-300/30 select-none">
-                                  <span>⬅ Izquierda</span>
-                                  <span>Centro</span>
-                                  <span>Derecha ➡</span>
-                                </div>
-                              )}
-                              {positionedPorts.map((p) =>
-                                renderPortButton(
-                                  dev,
-                                  p,
-                                  positionedPorts.length > 24 ? 20 : 10,
-                                  true
-                                )
-                              )}
-                            </>
-                          ) : (
-                            <>
-                              {/* ZONE 1: LEFT PORTS (Console, USB, PON, Mgmt, etc.) */}
-                              {leftRows.length > 0 ? (
-                                <div className="flex flex-col gap-1 items-start justify-center shrink-0 pr-1.5 border-r border-slate-700/60">
-                                  {leftRows.map((rPorts, rIdx) => (
-                                    <div
-                                      key={`zleft-${dev.id}-${rIdx}`}
-                                      className="flex flex-nowrap items-center gap-[3px]"
-                                    >
-                                      {rPorts.map((p) =>
-                                        renderPortButton(dev, p, rPorts.length)
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div />
-                              )}
-
-                              {/* ZONE 2: CENTER PORTS (Separated Main Switch Bank / WAN / FXS) */}
-                              {centerRows.length > 0 && (
-                                <div className="flex flex-col gap-1 items-center justify-center shrink-0 px-1">
-                                  {centerRows.map((rPorts, rIdx) => (
-                                    <div
-                                      key={`zcenter-${dev.id}-${rIdx}`}
-                                      className="flex flex-nowrap items-center gap-[3px]"
-                                    >
-                                      {rPorts.map((p) =>
-                                        renderPortButton(dev, p, rPorts.length)
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {/* ZONE 3: RIGHT PORTS (LAN Ports / SFP+ Uplinks / Patch Panel Row) */}
-                              {rightRows.length > 0 && (
-                                <div
-                                  className={`flex flex-col gap-1 items-end justify-center shrink-0 ${
-                                    centerRows.length > 0
-                                      ? 'pl-1.5 border-l border-slate-700/60'
-                                      : ''
-                                  }`}
-                                >
-                                  {rightRows.map((rPorts, rIdx) => (
-                                    <div
-                                      key={`zright-${dev.id}-${rIdx}`}
-                                      className="flex flex-nowrap items-center gap-[3px] justify-end"
-                                    >
-                                      {rightRows.length > 1 &&
-                                        leftRows.length === 0 &&
-                                        centerRows.length === 0 && (
-                                          <span className="text-[8px] font-mono text-slate-400 mr-0.5 shrink-0">
-                                            F{rIdx + 1}
-                                          </span>
-                                        )}
-                                      {rPorts.map((p) =>
-                                        renderPortButton(dev, p, rPorts.length)
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
                       </div>
 
-                      {/* Right Rack Rail */}
-                      <div className="w-8 shrink-0 bg-slate-950/90 border-l border-slate-800 flex items-center justify-center font-mono text-[10px] text-slate-500 tabular-nums">
-                        {uNumber.toString().padStart(2, '0')}
+                      {/* Interactive Port Canvas */}
+                      <div
+                        ref={(el) => {
+                          faceplateCanvasRefs.current[dev.id] = el;
+                        }}
+                        className={`flex-1 relative z-30 min-w-0 ${
+                          useFreeformCanvas
+                            ? 'min-h-[30px]'
+                            : 'flex items-center justify-between gap-1.5'
+                        } ${
+                          graphicalPortMoveMode
+                            ? 'bg-slate-950/45 border border-dashed border-amber-400/60 rounded'
+                            : ''
+                        }`}
+                      >
+                        {useFreeformCanvas ? (
+                          <>
+                            {graphicalPortMoveMode && (
+                              <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-2 text-[8px] font-mono uppercase text-amber-300/30 select-none">
+                                <span>⬅ Izq</span>
+                                <span>Cen</span>
+                                <span>Der ➡</span>
+                              </div>
+                            )}
+                            {positionedPorts.map((p) =>
+                              renderPortButton(
+                                dev,
+                                p,
+                                isHalfBay
+                                  ? Math.max(14, positionedPorts.length)
+                                  : positionedPorts.length > 24
+                                  ? 20
+                                  : 10,
+                                true
+                              )
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {leftRows.length > 0 ? (
+                              <div className="flex flex-col gap-1 items-start justify-center shrink-0 pr-1 border-r border-slate-700/60">
+                                {leftRows.map((rPorts, rIdx) => (
+                                  <div
+                                    key={`zleft-${dev.id}-${rIdx}`}
+                                    className="flex flex-nowrap items-center gap-[2px]"
+                                  >
+                                    {rPorts.map((p) =>
+                                      renderPortButton(
+                                        dev,
+                                        p,
+                                        isHalfBay ? 18 : rPorts.length
+                                      )
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div />
+                            )}
+
+                            {centerRows.length > 0 && (
+                              <div className="flex flex-col gap-1 items-center justify-center shrink-0 px-0.5">
+                                {centerRows.map((rPorts, rIdx) => (
+                                  <div
+                                    key={`zcenter-${dev.id}-${rIdx}`}
+                                    className="flex flex-nowrap items-center gap-[2px]"
+                                  >
+                                    {rPorts.map((p) =>
+                                      renderPortButton(
+                                        dev,
+                                        p,
+                                        isHalfBay ? 18 : rPorts.length
+                                      )
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {rightRows.length > 0 && (
+                              <div
+                                className={`flex flex-col gap-1 items-end justify-center shrink-0 ${
+                                  centerRows.length > 0
+                                    ? 'pl-1 border-l border-slate-700/60'
+                                    : ''
+                                }`}
+                              >
+                                {rightRows.map((rPorts, rIdx) => (
+                                  <div
+                                    key={`zright-${dev.id}-${rIdx}`}
+                                    className="flex flex-nowrap items-center gap-[2px] justify-end"
+                                  >
+                                    {rPorts.map((p) =>
+                                      renderPortButton(
+                                        dev,
+                                        p,
+                                        isHalfBay ? 18 : rPorts.length
+                                      )
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
                   );
-                }
+                };
 
-                // Empty U Slot
-                const isHovered = hoverU === uNumber;
+                const leftBayDevice = isDualShelf
+                  ? slotDevices.find((d) => d.shelfBay === 'left') ||
+                    (slotDevices.length === 2 ? slotDevices[0] : undefined)
+                  : slotDevices[0];
+                const rightBayDevice = isDualShelf
+                  ? slotDevices.find(
+                      (d) =>
+                        d.id !== leftBayDevice?.id &&
+                        (d.shelfBay === 'right' || slotDevices.length === 2)
+                    )
+                  : undefined;
+
                 return (
                   <div
-                    key={`u-empty-${uNumber}`}
+                    key={`u-row-${uNumber}`}
                     onDragOver={(e) => {
                       e.preventDefault();
                       if (hoverU !== uNumber) setHoverU(uNumber);
@@ -1830,32 +2122,153 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                         handleMoveDeviceToU(draggedDeviceId, uNumber);
                       }
                     }}
-                    className={`h-[30px] flex items-center justify-between transition-colors ${
-                      isHovered
-                        ? 'bg-blue-950/60 border-y border-blue-500'
-                        : 'bg-[#090D16] hover:bg-slate-900/50'
-                    }`}
+                    style={{ minHeight: `${rowHeightPx}px` }}
+                    className="relative flex items-stretch bg-[#090D16]"
                   >
-                    <div className="w-9 h-full bg-slate-950/60 border-r border-slate-800/80 flex items-center justify-center font-mono text-[10px] text-slate-600 tabular-nums">
-                      {uNumber.toString().padStart(2, '0')}
+                    {/* Left Rack Rail */}
+                    <div className="w-9 shrink-0 bg-slate-950/90 border-r border-slate-800 flex flex-col items-center justify-center font-mono text-[10px] text-slate-400 tabular-nums">
+                      <span>{uNumber.toString().padStart(2, '0')}</span>
+                      {maxUHeight > 1 && (
+                        <span className="text-[9px] text-slate-600">
+                          ..{slotDevices[0].uStart.toString().padStart(2, '0')}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex-1 px-3 flex items-center justify-between text-[10px] font-mono text-slate-700">
-                      <span>
-                        {isHovered
-                          ? `Soltar aquí para montar en U${uNumber}`
-                          : 'Bahía 19" Libre'}
-                      </span>
-                      <span className="hidden sm:inline">U{uNumber}</span>
-                    </div>
+                    {/* Shelf Content: Either 1 Full-Width Device OR 2 Side-by-Side Devices on Same U Shelf */}
+                    {isDualShelf ? (
+                      <div className="flex-1 grid grid-cols-2 divide-x-2 divide-amber-500/50 min-w-0">
+                        {/* LEFT HALF SHELF (1/2) */}
+                        {leftBayDevice ? (
+                          renderSingleDeviceFaceplate(leftBayDevice, true)
+                        ) : (
+                          <div
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setHoverU(null);
+                              if (draggedTemplate) {
+                                handleInstallTemplateAtU(
+                                  draggedTemplate,
+                                  uNumber,
+                                  'left'
+                                );
+                              } else if (draggedDeviceId) {
+                                handleMoveDeviceToU(
+                                  draggedDeviceId,
+                                  uNumber,
+                                  'left'
+                                );
+                              }
+                            }}
+                            onClick={() => {
+                              setCustomDevUStart(uNumber);
+                              setCustomDevShelfBay('left');
+                              setShowCustomBuilder(true);
+                            }}
+                            className="flex items-center justify-between px-2.5 bg-slate-950/70 hover:bg-blue-950/40 text-[10px] font-mono text-slate-400 hover:text-blue-300 cursor-pointer transition-colors"
+                          >
+                            <span>+ Hueco Izquierdo Libre (U{uNumber})</span>
+                            <span className="px-1.5 py-0.5 rounded bg-blue-600/20 border border-blue-500/40 text-blue-300 text-[9px]">
+                              + Añadir 2º Equipo
+                            </span>
+                          </div>
+                        )}
 
-                    <div className="w-8 h-full bg-slate-950/60 border-l border-slate-800/80 flex items-center justify-center font-mono text-[10px] text-slate-600 tabular-nums">
+                        {/* RIGHT HALF SHELF (2/2) */}
+                        {rightBayDevice ? (
+                          renderSingleDeviceFaceplate(rightBayDevice, true)
+                        ) : (
+                          <div
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setHoverU(null);
+                              if (draggedTemplate) {
+                                handleInstallTemplateAtU(
+                                  draggedTemplate,
+                                  uNumber,
+                                  'right'
+                                );
+                              } else if (draggedDeviceId) {
+                                handleMoveDeviceToU(
+                                  draggedDeviceId,
+                                  uNumber,
+                                  'right'
+                                );
+                              }
+                            }}
+                            onClick={() => {
+                              setCustomDevUStart(uNumber);
+                              setCustomDevShelfBay('right');
+                              setShowCustomBuilder(true);
+                            }}
+                            className="flex items-center justify-between px-2.5 bg-slate-950/70 hover:bg-blue-950/40 text-[10px] font-mono text-slate-400 hover:text-blue-300 cursor-pointer transition-colors"
+                          >
+                            <span>+ Hueco Derecho Libre (U{uNumber})</span>
+                            <span className="px-1.5 py-0.5 rounded bg-blue-600/20 border border-blue-500/40 text-blue-300 text-[9px]">
+                              + Añadir 2º Equipo
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      renderSingleDeviceFaceplate(slotDevices[0], false)
+                    )}
+
+                    {/* Right Rack Rail */}
+                    <div className="w-8 shrink-0 bg-slate-950/90 border-l border-slate-800 flex items-center justify-center font-mono text-[10px] text-slate-500 tabular-nums">
                       {uNumber.toString().padStart(2, '0')}
                     </div>
                   </div>
                 );
               }
-            )}
+
+              // Empty U Slot
+              const isHovered = hoverU === uNumber;
+              return (
+                <div
+                  key={`u-empty-${uNumber}`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (hoverU !== uNumber) setHoverU(uNumber);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setHoverU(null);
+                    if (draggedTemplate) {
+                      handleInstallTemplateAtU(draggedTemplate, uNumber);
+                    } else if (draggedDeviceId) {
+                      handleMoveDeviceToU(draggedDeviceId, uNumber);
+                    }
+                  }}
+                  className={`h-[30px] flex items-center justify-between transition-colors ${
+                    isHovered
+                      ? 'bg-blue-950/60 border-y border-blue-500'
+                      : 'bg-[#090D16] hover:bg-slate-900/50'
+                  }`}
+                >
+                  <div className="w-9 h-full bg-slate-950/60 border-r border-slate-800/80 flex items-center justify-center font-mono text-[10px] text-slate-600 tabular-nums">
+                    {uNumber.toString().padStart(2, '0')}
+                  </div>
+
+                  <div className="flex-1 px-3 flex items-center justify-between text-[10px] font-mono text-slate-700">
+                    <span>
+                      {isHovered
+                        ? `Soltar aquí para montar en U${uNumber}`
+                        : 'Bahía 19" Libre'}
+                    </span>
+                    <span className="hidden sm:inline">U{uNumber}</span>
+                  </div>
+
+                  <div className="w-8 h-full bg-slate-950/60 border-l border-slate-800/80 flex items-center justify-center font-mono text-[10px] text-slate-600 tabular-nums">
+                    {uNumber.toString().padStart(2, '0')}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -1899,6 +2312,120 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
 
           {selectedDevice ? (
             <div className="space-y-3.5 text-xs">
+              {/* Dual-Device Shelf Mode (2 Equipos en la misma U) */}
+              <div className="p-3 rounded-lg bg-cyan-950/35 border border-cyan-600/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-cyan-200 flex items-center gap-1.5">
+                    <Columns2 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Bandeja / Estantería en U{selectedDevice.uStart}</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-cyan-300">
+                    {selectedDevice.shelfBay === 'left'
+                      ? 'Mitad Izq (1/2)'
+                      : selectedDevice.shelfBay === 'right'
+                      ? 'Mitad Der (2/2)'
+                      : 'Ancho 19" Completo'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-300 leading-relaxed">
+                  Coloque 2 dispositivos en la misma U (ej. 2 firewalls HA o ONT + Router en la misma bandeja):
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(
+                    [
+                      { id: 'full', label: '19" Completo' },
+                      { id: 'left', label: '⬅ Mitad Izq' },
+                      { id: 'right', label: 'Mitad Der ➡' }
+                    ] as const
+                  ).map((bayOpt) => (
+                    <button
+                      key={bayOpt.id}
+                      type="button"
+                      onClick={() => {
+                        if (bayOpt.id === 'full') {
+                          // Check if there is a second device sharing this U
+                          const partner = rack.devices.find(
+                            (d) =>
+                              d.id !== selectedDevice.id &&
+                              d.uStart === selectedDevice.uStart
+                          );
+                          if (partner) {
+                            showNotice(
+                              `Desmonte o mueva primero "${partner.name}" para que ${selectedDevice.name} ocupe toda la U${selectedDevice.uStart}.`
+                            );
+                            return;
+                          }
+                        }
+                        onUpdateRack({
+                          ...rack,
+                          devices: rack.devices.map((d) =>
+                            d.id === selectedDevice.id
+                              ? { ...d, shelfBay: bayOpt.id }
+                              : d
+                          )
+                        });
+                      }}
+                      className={`py-1.5 px-2 rounded font-mono text-[10px] font-bold border transition-colors cursor-pointer ${
+                        (selectedDevice.shelfBay || 'full') === bayOpt.id
+                          ? 'bg-cyan-600 text-white border-cyan-300 shadow'
+                          : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-cyan-500'
+                      }`}
+                    >
+                      {bayOpt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* One-Click Clone / Add 2nd Device on Same U Shelf */}
+                {rack.devices.filter((d) => d.uStart === selectedDevice.uStart)
+                  .length < 2 && (
+                  <div className="pt-1 flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cloneId = `dev-${Date.now()}`;
+                        const clonedPorts = selectedDevice.ports.map((p) => ({
+                          ...p,
+                          id: `${cloneId}-p${p.number}`
+                        }));
+                        const secondDev: RackDevice = {
+                          ...selectedDevice,
+                          id: cloneId,
+                          name: `${selectedDevice.name}-HA2`,
+                          shelfBay:
+                            selectedDevice.shelfBay === 'right'
+                              ? 'left'
+                              : 'right',
+                          serialNumber: `${selectedDevice.serialNumber}-B`,
+                          ports: clonedPorts
+                        };
+                        const updatedList = rack.devices.map((d) =>
+                          d.id === selectedDevice.id
+                            ? {
+                                ...d,
+                                shelfBay: (selectedDevice.shelfBay === 'right'
+                                  ? 'right'
+                                  : 'left') as ShelfBay
+                              }
+                            : d
+                        );
+                        onUpdateRack({
+                          ...rack,
+                          devices: [...updatedList, secondDev]
+                        });
+                        setSelectedDeviceId(secondDev.id);
+                        showNotice(
+                          `Añadido 2º equipo "${secondDev.name}" compartiendo la estantería U${selectedDevice.uStart}`
+                        );
+                      }}
+                      className="flex-1 py-1.5 px-2 rounded bg-cyan-600/25 hover:bg-cyan-600/40 border border-cyan-500/60 text-cyan-200 font-mono text-[10px] font-bold cursor-pointer"
+                    >
+                      + Duplicar en la misma U (Ej. 2º Firewall HA)
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 gap-2">
                 <div>
                   <label className="block text-[11px] text-slate-400 mb-1">
@@ -3170,7 +3697,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                 <div>
                   <label className="block text-slate-300 font-medium mb-1">
                     Posición U
@@ -3199,6 +3726,22 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                     <option value={2}>2U</option>
                     <option value={3}>3U</option>
                     <option value={4}>4U</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-cyan-300 font-medium mb-1">
+                    Bandeja en U
+                  </label>
+                  <select
+                    value={customDevShelfBay}
+                    onChange={(e) =>
+                      setCustomDevShelfBay(e.target.value as ShelfBay)
+                    }
+                    className="w-full px-2 py-1.5 bg-slate-900 border border-cyan-500/60 rounded-lg text-white font-mono"
+                  >
+                    <option value="full">19&quot; Completo</option>
+                    <option value="left">⬅ Mitad Izq (1/2)</option>
+                    <option value="right">Mitad Der (2/2) ➡</option>
                   </select>
                 </div>
                 <div>
@@ -3273,6 +3816,272 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                 >
                   Montar Equipo Personalizado (
                   {customPortBlocks.reduce((acc, b) => acc + b.count, 0)} Puertos)
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================================== */}
+      {/* MODAL 3: CUSTOM RACK CONFIGURATOR (RACK A MEDIDA Y PERSONALIZADO)   */}
+      {/* =================================================================== */}
+      {showRackCustomizer && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[#111827] border border-cyan-500/60 rounded-xl max-w-xl w-full overflow-hidden shadow-2xl">
+            <div className="px-5 py-4 bg-[#0D1322] border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Settings2 className="w-4 h-4 text-cyan-400" />
+                <div>
+                  <h3 className="font-display text-sm font-bold text-white">
+                    Configurar Rack a Medida y Personalizado
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Ajuste la altura en U exacta (de 4U a 60U), dimensiones físicas, potencia, numeración y color
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRackCustomizer(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSaveCustomRackSettings}
+              className="p-5 space-y-4 text-xs"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Nombre del Armario Rack
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editRackName}
+                    onChange={(e) => setEditRackName(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Código Sala / Ubicación
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editRackCode}
+                    onChange={(e) => setEditRackCode(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Custom U Height Selector with Presets + Exact Input */}
+              <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-white">
+                    Altura Exacta del Armario en Unidades (U)
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/50 text-cyan-300 font-mono font-bold">
+                    {editRackTotalU}U ({Math.round(editRackTotalU * 44.45)} mm útiles)
+                  </span>
+                </div>
+
+                <div>
+                  <span className="block text-[11px] text-slate-400 mb-1.5">
+                    Tamaños comerciales habituales o escriba cualquier número (4U a 60U):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[6, 9, 12, 15, 18, 22, 24, 32, 36, 42, 45, 48, 52].map(
+                      (uPreset) => (
+                        <button
+                          key={uPreset}
+                          type="button"
+                          onClick={() => setEditRackTotalU(uPreset)}
+                          className={`px-2.5 py-1 rounded font-mono text-xs font-bold border transition-colors cursor-pointer ${
+                            editRackTotalU === uPreset
+                              ? 'bg-cyan-600 text-white border-cyan-300'
+                              : 'bg-slate-950 text-slate-300 border-slate-700 hover:border-slate-500'
+                          }`}
+                        >
+                          {uPreset}U
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Unidades (U) a Medida [4 - 60]
+                    </label>
+                    <input
+                      type="number"
+                      min={4}
+                      max={60}
+                      value={editRackTotalU}
+                      onChange={(e) =>
+                        setEditRackTotalU(
+                          Math.max(4, Math.min(60, Number(e.target.value) || 12))
+                        )
+                      }
+                      className="w-full px-3 py-1.5 bg-slate-950 border border-cyan-500/70 rounded-lg text-white font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">
+                      Sentido Numeración Bastidor
+                    </label>
+                    <select
+                      value={editRackUDir}
+                      onChange={(e) =>
+                        setEditRackUDir(
+                          e.target.value as 'bottom-up' | 'top-down'
+                        )
+                      }
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                    >
+                      <option value="bottom-up">
+                        Estándar (U{editRackTotalU} Arriba → U01 Abajo)
+                      </option>
+                      <option value="top-down">
+                        Invertido (U01 Arriba → U{editRackTotalU} Abajo)
+                      </option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Physical Dimensions & Power */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">
+                    Tipo de Armario
+                  </label>
+                  <select
+                    value={editRackType}
+                    onChange={(e) =>
+                      setEditRackType(
+                        e.target.value as
+                          | 'floor'
+                          | 'wall'
+                          | 'open-frame'
+                          | 'custom'
+                      )
+                    }
+                    className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
+                  >
+                    <option value="floor">Suelo Cerrado</option>
+                    <option value="wall">Mural Pared</option>
+                    <option value="open-frame">Bastidor Abierto</option>
+                    <option value="custom">A Medida Especial</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">
+                    Ancho (mm)
+                  </label>
+                  <input
+                    type="number"
+                    min={450}
+                    max={1200}
+                    step={10}
+                    value={editRackWidthMm}
+                    onChange={(e) =>
+                      setEditRackWidthMm(Number(e.target.value) || 600)
+                    }
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">
+                    Fondo (mm)
+                  </label>
+                  <input
+                    type="number"
+                    min={300}
+                    max={1400}
+                    step={10}
+                    value={editRackDepthMm}
+                    onChange={(e) =>
+                      setEditRackDepthMm(Number(e.target.value) || 800)
+                    }
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-400 mb-1">
+                    Potencia Máx (W)
+                  </label>
+                  <input
+                    type="number"
+                    min={200}
+                    max={30000}
+                    step={100}
+                    value={editRackPower}
+                    onChange={(e) =>
+                      setEditRackPower(Number(e.target.value) || 3500)
+                    }
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Rack Frame Color */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900/90 border border-slate-800">
+                <span className="text-slate-300 font-medium">
+                  Color del Chasis / Bastidor del Rack:
+                </span>
+                <div className="flex items-center gap-2">
+                  {[
+                    { hex: '#0B0F17', name: 'Negro Grafito' },
+                    { hex: '#1E293B', name: 'Gris Antracita' },
+                    { hex: '#172554', name: 'Azul Industrial' },
+                    { hex: '#27272A', name: 'Acero Oscuro' },
+                    { hex: '#022C22', name: 'Verde Telecom' }
+                  ].map((c) => (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => setEditRackColor(c.hex)}
+                      style={{ backgroundColor: c.hex }}
+                      title={c.name}
+                      className={`w-6 h-6 rounded-md border cursor-pointer ${
+                        editRackColor === c.hex
+                          ? 'border-white scale-110 ring-2 ring-cyan-400'
+                          : 'border-slate-600'
+                      }`}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={editRackColor}
+                    onChange={(e) => setEditRackColor(e.target.value)}
+                    className="w-7 h-6 rounded cursor-pointer bg-transparent border-0"
+                    title="Color personalizado RGB"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRackCustomizer(false)}
+                  className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold cursor-pointer"
+                >
+                  Guardar Rack a Medida ({editRackTotalU}U)
                 </button>
               </div>
             </form>
