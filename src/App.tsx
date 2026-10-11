@@ -11,7 +11,8 @@ import {
   Server,
   CheckCircle2,
   RefreshCw,
-  Users
+  Users,
+  FileJson
 } from 'lucide-react';
 import { CompanyProject, RackUnit, ServerStorageInfo, UserRole } from './types';
 import { LoginScreen } from './components/LoginScreen';
@@ -22,6 +23,7 @@ import { PatchMatrixView } from './components/PatchMatrixView';
 import { UbuntuDeployGuide } from './components/UbuntuDeployGuide';
 import { UsersManagerModal } from './components/UsersManagerModal';
 import { PrintableCroquisModal } from './components/PrintableCroquisModal';
+import { ConfigBackupModal } from './components/ConfigBackupModal';
 
 type ActiveTab = 'simulator' | 'consulta' | 'projects' | 'matrix' | 'ubuntu';
 
@@ -42,6 +44,7 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [showUsersModal, setShowUsersModal] = useState<boolean>(false);
   const [showCroquisModal, setShowCroquisModal] = useState<boolean>(false);
+  const [showBackupModal, setShowBackupModal] = useState<boolean>(false);
 
   const [projects, setProjects] = useState<CompanyProject[]>([]);
   const [serverInfo, setServerInfo] = useState<ServerStorageInfo | null>(null);
@@ -370,9 +373,19 @@ export default function App() {
 
           <span className="text-slate-700 hidden sm:inline">·</span>
 
-          <div className="font-mono text-slate-300">
+          <div className="font-mono text-slate-300 hidden md:block">
             Usuario: <strong>{currentUser.username}</strong>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowBackupModal(true)}
+            title="Exportar o Importar archivo de configuración / Backup (.rackconfig.json)"
+            className="px-2.5 py-1 rounded bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-200 hover:text-white border border-emerald-500/50 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <FileJson className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Backup / Config (.json)</span>
+          </button>
 
           <button
             type="button"
@@ -428,6 +441,7 @@ export default function App() {
               setActiveTab('simulator');
             }}
             onUpdateProjects={handleUpdateAllProjects}
+            onOpenBackupModal={() => setShowBackupModal(true)}
           />
         )}
 
@@ -468,6 +482,22 @@ export default function App() {
           project={currentProject}
           rack={currentRack}
           onClose={() => setShowCroquisModal(false)}
+        />
+      )}
+
+      {/* Export / Import Configuration & Backup Modal */}
+      {showBackupModal && currentProject && currentRack && (
+        <ConfigBackupModal
+          projects={projects}
+          currentProject={currentProject}
+          currentRack={currentRack}
+          onApplyImportedProjects={(nextProjects, targetProjId, targetRackId) => {
+            handleUpdateAllProjects(nextProjects);
+            if (targetProjId) setActiveProjectId(targetProjId);
+            if (targetRackId) setActiveRackId(targetRackId);
+            setActiveTab('simulator');
+          }}
+          onClose={() => setShowBackupModal(false)}
         />
       )}
     </div>

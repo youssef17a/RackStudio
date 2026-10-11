@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Building2,
   Plus,
@@ -9,10 +9,24 @@ import {
   ArrowRight,
   MapPin,
   Mail,
-  Sliders
+  Sliders,
+  Download,
+  Upload,
+  FileJson,
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react';
 import { CompanyProject, RackUnit } from '../types';
 import { exportRackToTechnicalPDF } from '../utils/pdfExport';
+import {
+  exportFullSystemBackup,
+  exportSingleProjectBackup,
+  exportSingleRackBackup,
+  parseProjectBackupJson,
+  mergeImportedProjects,
+  saveCustomTemplatesToStorage,
+  loadSavedCustomTemplates
+} from '../utils/projectBackup';
 
 interface ProjectsManagerProps {
   projects: CompanyProject[];
@@ -20,6 +34,7 @@ interface ProjectsManagerProps {
   activeRackId: string;
   onSelectProjectRack: (projectId: string, rackId: string) => void;
   onUpdateProjects: (projects: CompanyProject[]) => void;
+  onOpenBackupModal?: () => void;
 }
 
 const RACK_U_PRESETS = [6, 9, 12, 15, 18, 22, 24, 32, 36, 42, 45, 48, 52];
@@ -29,7 +44,8 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
   activeProjectId,
   activeRackId,
   onSelectProjectRack,
-  onUpdateProjects
+  onUpdateProjects,
+  onOpenBackupModal
 }) => {
   const [companyName, setCompanyName] = useState('');
   const [projectName, setProjectName] = useState('');
@@ -52,6 +68,63 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
   const [newRackDepthMm, setNewRackDepthMm] = useState<number>(600);
   const [newRackPowerWatts, setNewRackPowerWatts] = useState<number>(3500);
   const [newRackFrameColor, setNewRackFrameColor] = useState<string>('#0B0F17');
+
+  // Quick Import & Export Feedback inside Projects Tab
+  const [backupNotice, setBackupNotice] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+  const quickImportRef = useRef<HTMLInputElement | null>(null);
+
+  const showBackupFeedback = (type: 'success' | 'error', text: string) => {
+    setBackupNotice({ type, text });
+    setTimeout(() => {
+      setBackupNotice((prev) => (prev?.text === text ? null : prev));
+    }, 5000);
+  };
+
+  const handleQuickImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = ev.target?.result;
+      if (typeof content !== 'string') return;
+      const parsed = parseProjectBackupJson(content);
+      if (!parsed.valid) {
+        showBackupFeedback(
+          'error',
+          parsed.error || 'El archivo seleccionado no es un backup válido.'
+        );
+        return;
+      }
+
+      if (parsed.customTemplates && parsed.customTemplates.length > 0) {
+        const existingCustom = loadSavedCustomTemplates();
+        const existingMap = new Map(existingCustom.map((t) => [t.id, t]));
+        parsed.customTemplates.forEach((t) => existingMap.set(t.id, t));
+        saveCustomTemplatesToStorage(Array.from(existingMap.values()));
+      }
+
+      const { nextProjects, targetProjectId, targetRackId } = mergeImportedProjects(
+        projects,
+        parsed.projects,
+        'merge'
+      );
+      onUpdateProjects(nextProjects);
+      showBackupFeedback(
+        'success',
+        `Importados ${parsed.summary.projectCount} proyecto(s) con ${parsed.summary.rackCount} armario(s) y ${parsed.summary.cableCount} cables.`
+      );
+      if (targetProjectId && targetRackId) {
+        setTimeout(() => {
+          onSelectProjectRack(targetProjectId, targetRackId);
+        }, 900);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,6 +207,84 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
+      {/* Top Backup & Configuration File Bar */}
+      <div className="bg-gradient-to-r from-[#111827] via-blue-950/30 to-[#111827] border border-blue-500/40 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+            <FileJson className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-display text-sm font-bold text-white">
+              Archivos de Configuración y Copias de Seguridad (Backups .rackconfig.json)
+            </h3>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Exporte cualquier proyecto o armario a un archivo local para guardarlo como backup, o importe un archivo existente para restaurarlo.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <input
+            ref={quickImportRef}
+            type="file"
+            accept=".json,.rackconfig.json,application/json"
+            onChange={handleQuickImportFile}
+            className="hidden"
+          />
+
+          <button
+            type="button"
+            onClick={() => quickImportRef.current?.click()}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Importar Proyecto / Backup (.json)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              exportFullSystemBackup(projects);
+              showBackupFeedback(
+                'success',
+                'Backup completo de todos los proyectos descargado correctamente.'
+              );
+            }}
+            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Exportar Backup Completo</span>
+          </button>
+
+          {onOpenBackupModal && (
+            <button
+              type="button"
+              onClick={onOpenBackupModal}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            >
+              Opciones Avanzadas...
+            </button>
+          )}
+        </div>
+      </div>
+
+      {backupNotice && (
+        <div
+          className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+            backupNotice.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200'
+              : 'bg-red-950/80 border-red-500/50 text-red-200'
+          }`}
+        >
+          {backupNotice.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+          )}
+          <span>{backupNotice.text}</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left 8 Cols: Existing Company Projects & Racks List */}
         <div className="lg:col-span-8 space-y-4">
@@ -180,7 +331,23 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      exportSingleProjectBackup(proj);
+                      showBackupFeedback(
+                        'success',
+                        `Proyecto "${proj.companyName}" exportado como archivo de configuración.`
+                      );
+                    }}
+                    title="Descargar archivo de configuración de esta empresa (.rackconfig.json)"
+                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 hover:text-white text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Exportar Proyecto</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() =>
@@ -457,15 +624,33 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
-                        <button
-                          type="button"
-                          onClick={() => exportRackToTechnicalPDF(proj, r)}
-                          className="text-xs text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
-                        >
-                          <FileDown className="w-3.5 h-3.5 text-blue-400" />
-                          <span>PDF Técnico</span>
-                        </button>
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 gap-2">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => exportRackToTechnicalPDF(proj, r)}
+                            className="text-xs text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                          >
+                            <FileDown className="w-3.5 h-3.5 text-blue-400" />
+                            <span>PDF Técnico</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              exportSingleRackBackup(proj, r);
+                              showBackupFeedback(
+                                'success',
+                                `Armario "${r.name}" exportado como archivo de configuración.`
+                              );
+                            }}
+                            title="Exportar archivo de configuración de este armario (.rackconfig.json)"
+                            className="text-xs text-slate-300 hover:text-emerald-300 flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                          >
+                            <Download className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Backup Rack</span>
+                          </button>
+                        </div>
 
                         <button
                           type="button"
