@@ -990,6 +990,8 @@ function buildRowsForPortSubset(
       if (countsByRow.reduce((a, b) => a + b, 0) === subset.length && countsByRow.length > 1) {
         rawRowSizes = countsByRow;
       }
+    } else if (subset.length > 0 && subset.every((p) => (p.row || 1) === 1)) {
+      rawRowSizes = [subset.length];
     }
   }
 
@@ -1115,15 +1117,7 @@ function buildRowsForPortSubset(
 function calculateZoneRowSizes(portCount: number, portsPerRow?: number[]): number[] | undefined {
   if (!portsPerRow || portsPerRow.length === 0 || portCount === 0) return undefined;
   if (portsPerRow.reduce((a, b) => a + b, 0) === portCount) return portsPerRow;
-  const targetPer = portsPerRow[0] || 12;
-  const chunks: number[] = [];
-  let rem = portCount;
-  while (rem > 0) {
-    const take = Math.min(targetPer, rem);
-    chunks.push(take);
-    rem -= take;
-  }
-  return chunks;
+  return undefined;
 }
 
 /**
