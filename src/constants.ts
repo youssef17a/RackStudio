@@ -994,7 +994,11 @@ function buildRowsForPortSubset(
   }
 
   if (rawRowSizes.length === 0) {
-    if (subset.length <= 16) {
+    if (order === 'vertical-odd-even' || order === 'vertical-even-odd') {
+      // Switch-style alternating rows: split into 2 rows whenever subset has 2 or more ports
+      const top = Math.ceil(subset.length / 2);
+      rawRowSizes = [top, subset.length - top];
+    } else if (subset.length <= 16) {
       rawRowSizes = [subset.length];
     } else if (subset.length <= 32) {
       const top = Math.ceil(subset.length / 2);
@@ -1035,13 +1039,26 @@ function buildRowsForPortSubset(
         const pairTotal = rowSizes[r] + rowSizes[r + 1];
         const pairSlice = subset.slice(portCursor, portCursor + pairTotal);
         portCursor += pairTotal;
-        pairSlice.forEach((p, idx) => {
-          if (idx % 2 === 0) {
-            rows[r].push(p);
-          } else {
-            rows[r + 1].push(p);
-          }
-        });
+
+        // If ports in pairSlice already have explicit row 1 and row 2 defined, preserve their row allocation
+        const hasExplicitPairRows =
+          pairSlice.length > 1 &&
+          pairSlice.every((p) => p.row === 1 || p.row === 2) &&
+          pairSlice.some((p) => p.row === 1) &&
+          pairSlice.some((p) => p.row === 2);
+
+        if (hasExplicitPairRows) {
+          rows[r].push(...pairSlice.filter((p) => (p.row || 1) === 1));
+          rows[r + 1].push(...pairSlice.filter((p) => p.row === 2));
+        } else {
+          pairSlice.forEach((p, idx) => {
+            if (idx % 2 === 0) {
+              rows[r].push(p);
+            } else {
+              rows[r + 1].push(p);
+            }
+          });
+        }
       } else {
         const slice = subset.slice(portCursor, portCursor + rowSizes[r]);
         portCursor += rowSizes[r];
@@ -1056,13 +1073,25 @@ function buildRowsForPortSubset(
         const pairTotal = rowSizes[r] + rowSizes[r + 1];
         const pairSlice = subset.slice(portCursor, portCursor + pairTotal);
         portCursor += pairTotal;
-        pairSlice.forEach((p, idx) => {
-          if (idx % 2 === 1) {
-            rows[r].push(p);
-          } else {
-            rows[r + 1].push(p);
-          }
-        });
+
+        const hasExplicitPairRows =
+          pairSlice.length > 1 &&
+          pairSlice.every((p) => p.row === 1 || p.row === 2) &&
+          pairSlice.some((p) => p.row === 1) &&
+          pairSlice.some((p) => p.row === 2);
+
+        if (hasExplicitPairRows) {
+          rows[r].push(...pairSlice.filter((p) => p.row === 2));
+          rows[r + 1].push(...pairSlice.filter((p) => (p.row || 1) === 1));
+        } else {
+          pairSlice.forEach((p, idx) => {
+            if (idx % 2 === 1) {
+              rows[r].push(p);
+            } else {
+              rows[r + 1].push(p);
+            }
+          });
+        }
       } else {
         const slice = subset.slice(portCursor, portCursor + rowSizes[r]);
         portCursor += rowSizes[r];
@@ -1081,6 +1110,20 @@ function buildRowsForPortSubset(
   }
 
   return rows.filter((r) => r.length > 0);
+}
+
+function calculateZoneRowSizes(portCount: number, portsPerRow?: number[]): number[] | undefined {
+  if (!portsPerRow || portsPerRow.length === 0 || portCount === 0) return undefined;
+  if (portsPerRow.reduce((a, b) => a + b, 0) === portCount) return portsPerRow;
+  const targetPer = portsPerRow[0] || 12;
+  const chunks: number[] = [];
+  let rem = portCount;
+  while (rem > 0) {
+    const take = Math.min(targetPer, rem);
+    chunks.push(take);
+    rem -= take;
+  }
+  return chunks;
 }
 
 /**
@@ -1113,20 +1156,20 @@ export function getOrganizedDeviceZones(dev: RackDevice): {
   const centerPorts = sorted.filter((p) => p.zone === 'center');
   const rightPorts = sorted.filter((p) => !p.zone || p.zone === 'right');
 
-  const leftRows = buildRowsForPortSubset(leftPorts, 'sequential');
+  const leftRows = buildRowsForPortSubset(
+    leftPorts,
+    order,
+    calculateZoneRowSizes(leftPorts.length, dev.portsPerRow)
+  );
   const centerRows = buildRowsForPortSubset(
     centerPorts,
     order,
-    dev.portsPerRow && dev.portsPerRow.reduce((a, b) => a + b, 0) === centerPorts.length
-      ? dev.portsPerRow
-      : undefined
+    calculateZoneRowSizes(centerPorts.length, dev.portsPerRow)
   );
   const rightRows = buildRowsForPortSubset(
     rightPorts,
     order,
-    dev.portsPerRow && dev.portsPerRow.reduce((a, b) => a + b, 0) === rightPorts.length
-      ? dev.portsPerRow
-      : undefined
+    calculateZoneRowSizes(rightPorts.length, dev.portsPerRow)
   );
 
   const maxRows = Math.max(1, leftRows.length, centerRows.length, rightRows.length);
@@ -1164,7 +1207,10 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
   const remainingUplinks = useAllPortsDirectly ? [] : sfpUplinks;
 
   if (rawRowSizes.length === 0) {
-    if (basePorts.length <= 16) {
+    if (order === 'vertical-odd-even' || order === 'vertical-even-odd') {
+      const top = Math.ceil(basePorts.length / 2);
+      rawRowSizes = [top, basePorts.length - top];
+    } else if (basePorts.length <= 16) {
       rawRowSizes = [basePorts.length];
     } else if (basePorts.length <= 32) {
       const top = Math.ceil(basePorts.length / 2);
@@ -1217,16 +1263,40 @@ export function getOrganizedDevicePortRows(dev: RackDevice): DevicePort[][] {
 
 export function createDeviceFromPortBlocks(
   devId: string,
-  blocks: CustomPortBlockSpec[]
+  blocks: CustomPortBlockSpec[],
+  numberingOrder: PortNumberingOrder = 'vertical-odd-even'
 ): { ports: DevicePort[]; portsPerRow?: number[] } {
   const ports: DevicePort[] = [];
   let portCounter = 1;
+  const portsPerRowAcc: number[] = [];
 
   for (const block of blocks) {
     const rowCount = Math.max(1, Math.min(4, block.rows || 1));
+    const effectiveOrder = block.numberingOrder || numberingOrder;
     const perRow = Math.ceil(block.count / rowCount);
+
+    if (rowCount > 1) {
+      portsPerRowAcc.push(perRow, block.count - perRow);
+    } else {
+      portsPerRowAcc.push(block.count);
+    }
+
     for (let i = 0; i < block.count; i++) {
-      const rowNum = Math.min(rowCount, Math.floor(i / perRow) + 1);
+      let rowNum = 1;
+      if (rowCount === 2) {
+        if (effectiveOrder === 'vertical-odd-even') {
+          // Odd ports in block (i = 0, 2, 4...) are row 1 (top); Even ports (i = 1, 3, 5...) are row 2 (bottom)
+          rowNum = i % 2 === 0 ? 1 : 2;
+        } else if (effectiveOrder === 'vertical-even-odd') {
+          rowNum = i % 2 === 0 ? 2 : 1;
+        } else {
+          // Sequential: first half is row 1, second half is row 2
+          rowNum = i < perRow ? 1 : 2;
+        }
+      } else if (rowCount > 2) {
+        rowNum = Math.min(rowCount, Math.floor(i / perRow) + 1);
+      }
+
       const indexInBlock = i + 1;
       const label =
         block.count === 1
@@ -1257,7 +1327,7 @@ export function createDeviceFromPortBlocks(
     }
   }
 
-  return { ports };
+  return { ports, portsPerRow: portsPerRowAcc };
 }
 
 export function createDeviceFromTemplate(
@@ -1381,21 +1451,35 @@ export function ensureDevicePortCoordinates(dev: RackDevice): DevicePort[] {
   const { leftRows, centerRows, rightRows, maxRows } = getOrganizedDeviceZones(dev);
   const coordMap: Record<string, { xPercent: number; yPercent: number }> = {};
 
+  const hasLeft = leftRows.length > 0 && leftRows.some((r) => r.length > 0);
+  const hasCenter = centerRows.length > 0 && centerRows.some((r) => r.length > 0);
+  const hasRight = rightRows.length > 0 && rightRows.some((r) => r.length > 0);
+
+  // Dynamic span calculation based on which zones are present:
+  const leftStart = 3;
+  const leftEnd = 24;
+  const centerStart = hasLeft ? 26 : 4;
+  const centerEnd = hasRight ? 74 : 96;
+  const rightStart = hasCenter ? 76 : hasLeft ? 28 : 6;
+
   const assignZoneCoords = (
     rows: DevicePort[][],
     xStart: number,
     xEnd: number
   ) => {
     const totalRows = Math.max(1, rows.length);
+    const maxCount = Math.max(1, ...rows.map((r) => r.length));
+    const span = xEnd - xStart;
+    const naturalStep = maxCount <= 1 ? 0 : span / Math.max(1, maxCount - 1);
+    const step = Math.min(4.2, Math.max(2.4, naturalStep));
+
     rows.forEach((rowPorts, rIdx) => {
       const yPct =
         totalRows === 1
           ? 50
-          : Number((22 + (rIdx / (totalRows - 1)) * 56).toFixed(1));
-      const count = rowPorts.length;
+          : Number((24 + (rIdx / (totalRows - 1)) * 52).toFixed(1));
+
       rowPorts.forEach((p, cIdx) => {
-        const span = xEnd - xStart;
-        const step = count <= 1 ? 0 : Math.min(4.2, span / Math.max(1, count));
         const xPct = Number((xStart + cIdx * step).toFixed(1));
         coordMap[p.id] = {
           xPercent: Math.max(2, Math.min(97, xPct)),
@@ -1405,30 +1489,29 @@ export function ensureDevicePortCoordinates(dev: RackDevice): DevicePort[] {
     });
   };
 
-  assignZoneCoords(leftRows, 3, 25);
-  assignZoneCoords(centerRows, 29, 64);
+  if (hasLeft) assignZoneCoords(leftRows, leftStart, leftEnd);
+  if (hasCenter) assignZoneCoords(centerRows, centerStart, centerEnd);
+  if (hasRight) {
+    const totalRows = Math.max(1, rightRows.length);
+    const maxCount = Math.max(1, ...rightRows.map((r) => r.length));
+    const step = maxCount > 16 ? 2.9 : maxCount > 10 ? 3.5 : 4.1;
+    const totalWidth = (maxCount - 1) * step;
+    const startX = Math.max(rightStart, 95 - totalWidth);
 
-  // For right zone, align toward the right side of the faceplate
-  const totalRightRows = Math.max(1, rightRows.length);
-  rightRows.forEach((rowPorts, rIdx) => {
-    const yPct =
-      totalRightRows === 1
-        ? 50
-        : Number((22 + (rIdx / (totalRightRows - 1)) * 56).toFixed(1));
-    const count = rowPorts.length;
-    const step = count > 16 ? 3.2 : count > 10 ? 3.8 : 4.4;
-    const totalWidth = (count - 1) * step;
-    const startX = Math.max(
-      leftRows.length > 0 || centerRows.length > 0 ? 32 : 6,
-      95 - totalWidth
-    );
-    rowPorts.forEach((p, cIdx) => {
-      coordMap[p.id] = {
-        xPercent: Number(Math.max(2, Math.min(97, startX + cIdx * step)).toFixed(1)),
-        yPercent: Math.max(14, Math.min(86, yPct))
-      };
+    rightRows.forEach((rowPorts, rIdx) => {
+      const yPct =
+        totalRows === 1
+          ? 50
+          : Number((24 + (rIdx / (totalRows - 1)) * 52).toFixed(1));
+
+      rowPorts.forEach((p, cIdx) => {
+        coordMap[p.id] = {
+          xPercent: Number(Math.max(2, Math.min(97, startX + cIdx * step)).toFixed(1)),
+          yPercent: Math.max(14, Math.min(86, yPct))
+        };
+      });
     });
-  });
+  }
 
   // Fallback for any port not in rows
   return dev.ports.map((p, idx) => {

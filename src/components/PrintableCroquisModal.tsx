@@ -575,26 +575,67 @@ export const PrintableCroquisModal: React.FC<PrintableCroquisModalProps> = ({
 
                                 {/* Destination Connection Body */}
                                 <div className="p-1.5 space-y-0.5 text-[10px]">
-                                  <div className="flex items-center gap-1 font-mono font-bold text-slate-900">
-                                    <ArrowRight className="w-3 h-3 text-slate-700 shrink-0" />
-                                    <span className="truncate">
-                                      [U{conn.remoteDevice.uStart}] {conn.remoteDevice.name}
-                                    </span>
-                                  </div>
-                                  <div className="font-mono text-slate-800 pl-4 font-bold">
-                                    Puerto:{' '}
-                                    <span className="underline">
-                                      {conn.remotePort.label} (#
-                                      {conn.remotePort.number
-                                        .toString()
-                                        .padStart(2, '0')}
-                                      )
-                                    </span>
-                                  </div>
-                                  <div className="font-mono text-[9px] text-slate-600 pl-4 flex items-center justify-between">
-                                    <span>{conn.cableLabel}</span>
-                                    <span>{conn.vlan}</span>
-                                  </div>
+                                  {conn.isExternal ? (
+                                    <>
+                                      <div className="flex items-center gap-1 font-mono font-bold">
+                                        <ArrowRight className="w-3 h-3 text-slate-700 shrink-0" />
+                                        <span
+                                          className={
+                                            conn.externalStatus === 'inoperativo'
+                                              ? 'text-red-700 font-extrabold'
+                                              : 'text-emerald-700 font-extrabold'
+                                          }
+                                        >
+                                          [EXTERIOR]{' '}
+                                          {conn.externalStatus === 'inoperativo'
+                                            ? '🔴 INOPERATIVO (DOWN)'
+                                            : '🟢 OPERATIVO (UP)'}
+                                        </span>
+                                      </div>
+                                      <div className="font-mono text-slate-800 pl-4 font-bold text-[9.5px]">
+                                        Origen:{' '}
+                                        <span className="underline">
+                                          {conn.externalOrigin || 'Origen desconocido'}
+                                        </span>
+                                      </div>
+                                      {conn.externalNotes && (
+                                        <div className="font-mono text-[8.5px] text-slate-500 pl-4 italic">
+                                          {conn.externalNotes}
+                                        </div>
+                                      )}
+                                      <div className="font-mono text-[9px] text-slate-600 pl-4 flex items-center justify-between">
+                                        <span>{conn.cableLabel}</span>
+                                        <span>{conn.vlan}</span>
+                                      </div>
+                                    </>
+                                  ) : conn.remoteDevice && conn.remotePort ? (
+                                    <>
+                                      <div className="flex items-center gap-1 font-mono font-bold text-slate-900">
+                                        <ArrowRight className="w-3 h-3 text-slate-700 shrink-0" />
+                                        <span className="truncate">
+                                          [U{conn.remoteDevice.uStart}] {conn.remoteDevice.name}
+                                        </span>
+                                      </div>
+                                      <div className="font-mono text-slate-800 pl-4 font-bold">
+                                        Puerto:{' '}
+                                        <span className="underline">
+                                          {conn.remotePort.label} (#
+                                          {conn.remotePort.number
+                                            .toString()
+                                            .padStart(2, '0')}
+                                          )
+                                        </span>
+                                      </div>
+                                      <div className="font-mono text-[9px] text-slate-600 pl-4 flex items-center justify-between">
+                                        <span>{conn.cableLabel}</span>
+                                        <span>{conn.vlan}</span>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="font-mono text-slate-500 pl-4">
+                                      Conexión registrada ({conn.cableLabel})
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );

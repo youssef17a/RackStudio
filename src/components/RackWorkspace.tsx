@@ -21,7 +21,8 @@ import {
   Move,
   Columns2,
   Settings2,
-  ZoomIn
+  ZoomIn,
+  Globe
 } from 'lucide-react';
 import {
   CompanyProject,
@@ -119,6 +120,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   );
   const [zoomedDeviceId, setZoomedDeviceId] = useState<string | null>(null);
   const [selectedCableId, setSelectedCableId] = useState<string | null>(null);
+  const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
   const [hoveredCableId, setHoveredCableId] = useState<string | null>(null);
   const [hoverInfo, setHoverInfo] = useState<HoverCableOrPortInfo | null>(null);
   const [showCablesOverlay, setShowCablesOverlay] = useState<boolean>(true);
@@ -452,7 +454,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
   // Synchronize customPreviewPorts whenever customPortBlocks or customDevNumbering changes
   useEffect(() => {
     const validBlocks = customPortBlocks.filter((b) => b.count > 0);
-    const { ports: rawPorts } = createDeviceFromPortBlocks(
+    const { ports: rawPorts, portsPerRow } = createDeviceFromPortBlocks(
       'preview-dev',
       validBlocks.length > 0
         ? validBlocks
@@ -465,7 +467,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               zone: 'right',
               rows: 1
             }
-          ]
+          ],
+      customDevNumbering
     );
 
     const mockDev: RackDevice = {
@@ -482,6 +485,7 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       powerWatts: customDevWatts,
       status: 'nominal',
       notes: '',
+      portsPerRow,
       portNumberingOrder: customDevNumbering,
       ports: rawPorts
     };
@@ -635,6 +639,13 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     }
 
     const devId = `dev-custom-${Date.now()}`;
+    const validBlocks = customPortBlocks.filter((b) => b.count > 0);
+    const { portsPerRow: calculatedRows } = createDeviceFromPortBlocks(
+      devId,
+      validBlocks.length > 0 ? validBlocks : [],
+      customDevNumbering
+    );
+
     const finalPorts: DevicePort[] = customPreviewPorts.map((p, idx) => ({
       ...p,
       id: `${devId}-p${idx + 1}`,
@@ -655,8 +666,9 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
       serialNumber: `SN-CUST-${Math.floor(100000 + Math.random() * 900000)}`,
       powerWatts: customDevWatts,
       status: 'nominal',
-      notes: `Dispositivo personalizado con ${finalPorts.length} puertos posicionados gráficamente.`,
+      notes: `Dispositivo personalizado con ${finalPorts.length} puertos posicionados.`,
       customColor: customDevColor,
+      portsPerRow: calculatedRows,
       portNumberingOrder: customDevNumbering,
       ports: finalPorts
     };
@@ -673,6 +685,93 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
           ? ` [Estantería ${assignedBay === 'left' ? 'Izquierda 1/2' : 'Derecha 2/2'}]`
           : ''
       }`
+    );
+  };
+
+  const handleReorderDevicePorts = (
+    deviceId: string,
+    newOrder: PortNumberingOrder,
+    targetRowsCount?: number
+  ) => {
+    const targetDev = rack.devices.find((d) => d.id === deviceId);
+    if (!targetDev) return;
+
+    const totalPorts = targetDev.ports.length;
+    let rowSizes: number[] =
+      targetDev.portsPerRow && targetDev.portsPerRow.length > 0
+        ? [...targetDev.portsPerRow]
+        : [];
+
+    if (targetRowsCount === 1) {
+      rowSizes = [totalPorts];
+    } else if (targetRowsCount && targetRowsCount >= 2) {
+      const top = Math.ceil(totalPorts / targetRowsCount);
+      rowSizes = [top, totalPorts - top];
+    } else if (rowSizes.length === 0) {
+      if (newOrder === 'vertical-odd-even' || newOrder === 'vertical-even-odd') {
+        const top = Math.ceil(totalPorts / 2);
+        rowSizes = [top, totalPorts - top];
+      } else {
+        const top = Math.ceil(totalPorts / 2);
+        rowSizes = totalPorts > 16 ? [top, totalPorts - top] : [totalPorts];
+      }
+    }
+
+    const perRow = rowSizes[0] || Math.ceil(totalPorts / 2);
+    const sorted = [...targetDev.ports].sort((a, b) => a.number - b.number);
+    const updatedPorts: DevicePort[] = sorted.map((p, idx) => {
+      let r = 1;
+      if (rowSizes.length >= 2) {
+        if (newOrder === 'vertical-odd-even') {
+          // Odd ports in row 1, even ports in row 2
+          r = idx % 2 === 0 ? 1 : 2;
+        } else if (newOrder === 'vertical-even-odd') {
+          r = idx % 2 === 0 ? 2 : 1;
+        } else {
+          // Sequential: first half row 1, second half row 2
+          r = idx < perRow ? 1 : 2;
+        }
+      }
+      return {
+        ...p,
+        number: idx + 1,
+        row: r,
+        xPercent: undefined,
+        yPercent: undefined
+      };
+    });
+
+    const tempDev: RackDevice = {
+      ...targetDev,
+      portNumberingOrder: newOrder,
+      portsPerRow: rowSizes,
+      ports: updatedPorts
+    };
+
+    const finalPorts = ensureDevicePortCoordinates(tempDev);
+
+    onUpdateRack({
+      ...rack,
+      devices: rack.devices.map((d) =>
+        d.id === deviceId
+          ? {
+              ...d,
+              portNumberingOrder: newOrder,
+              portsPerRow: rowSizes,
+              ports: finalPorts
+            }
+          : d
+      )
+    });
+
+    showNotice(
+      `Puertos de "${targetDev.name}" reorganizados en orden ${
+        newOrder === 'vertical-odd-even'
+          ? '1 Arriba / 2 Abajo (Alterno Switch)'
+          : newOrder === 'vertical-even-odd'
+          ? '2 Arriba / 1 Abajo'
+          : 'Secuencial por Fila'
+      } (${rowSizes.length} fila/s).`
     );
   };
 
@@ -1225,7 +1324,16 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
     const isBeingDragged =
       draggingRackPort?.deviceId === dev.id &&
       draggingRackPort?.portId === port.id;
-    const portColorHex = connCable ? COLOR_HEX_MAP[connCable.color] : undefined;
+    const isPortSelected = selectedPortId === port.id;
+    const isExternal = Boolean(port.externalOccupied);
+    const isExternalOp = port.externalStatus !== 'inoperativo';
+    const portColorHex = connCable
+      ? COLOR_HEX_MAP[connCable.color]
+      : isExternal
+      ? isExternalOp
+        ? '#059669'
+        : '#DC2626'
+      : undefined;
 
     const isDefaultNumeric = /^(GE|P|PORT|eno)\d+$/i.test(port.label);
     const showShortText =
@@ -1257,9 +1365,9 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
         : 'bg-slate-900 text-slate-200 border-slate-700 hover:border-blue-400 hover:bg-slate-800';
 
     const inlineStyle: React.CSSProperties = {};
-    if (connCable) {
+    if (connCable || isExternal) {
       inlineStyle.backgroundColor = portColorHex;
-      inlineStyle.borderColor = '#ffffff';
+      inlineStyle.borderColor = isExternal ? (isExternalOp ? '#34D399' : '#F87171') : '#ffffff';
     }
     if (
       isFreeformPositioned &&
@@ -1282,6 +1390,10 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
         title={
           graphicalPortMoveMode
             ? `Arrastre con el ratón para mover el puerto #${port.number} [${port.label}] a cualquier parte del chasis`
+            : isExternal
+            ? `Puerto #${port.number} [${port.label}] — CABLE EXTERIOR (${
+                isExternalOp ? 'OPERATIVO' : 'INOPERATIVO'
+              }) Origen: ${port.externalOrigin || 'Desconocido'}`
             : `Puerto #${port.number} [${port.label}] — ${
                 PORT_TYPE_META[port.type]?.label || port.type
               }`
@@ -1315,13 +1427,24 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
               subtext: `${connCable.category} · ${connCable.vlan} · ${connCable.lengthMeters}m`,
               colorHex: COLOR_HEX_MAP[connCable.color]
             });
+          } else if (isExternal) {
+            setHoveredCableId(null);
+            setHoverInfo({
+              text: `🔌 CABLE EXTERIOR: [U${dev.uStart}] ${dev.name} (${port.label} #${port.number}) — ${
+                isExternalOp ? '🟢 OPERATIVO (UP)' : '🔴 INOPERATIVO (DOWN)'
+              }`,
+              subtext: `Origen: ${port.externalOrigin || 'Lugar desconocido'} ${
+                port.externalNotes ? `· ${port.externalNotes}` : ''
+              }`,
+              colorHex: isExternalOp ? '#10B981' : '#EF4444'
+            });
           } else {
             setHoveredCableId(null);
             setHoverInfo({
               text: `Puerto #${port.number} [${port.label}] (${
                 PORT_TYPE_META[port.type]?.shortTag || port.type.toUpperCase()
               }) — [U${dev.uStart}] ${dev.name}`,
-              subtext: `Libre · clic para conectar cable`
+              subtext: `Libre · clic para conectar cable o marcar como exterior`
             });
           }
         }}
@@ -1334,6 +1457,8 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             e.stopPropagation();
             return;
           }
+          setSelectedPortId(port.id);
+          setSelectedDeviceId(dev.id);
           handlePortClick(e, dev, port.id, port.label);
         }}
         style={inlineStyle}
@@ -1352,11 +1477,20 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
             ? 'bg-amber-400 text-slate-950 border-white ring-2 ring-white z-50 shadow-xl'
             : isPending || isHoveredCablePort
             ? 'bg-amber-500 text-slate-950 border-white ring-2 ring-amber-300 z-40'
-            : connCable
+            : isPortSelected
+            ? 'ring-2 ring-amber-400 border-white z-30 shadow-md'
+            : connCable || isExternal
             ? 'text-white shadow-sm hover:brightness-125'
             : typeStyle
         }`}
       >
+        {isExternal && (
+          <span
+            className={`inline-block w-1.5 h-1.5 rounded-full mr-0.5 shrink-0 ${
+              isExternalOp ? 'bg-emerald-300 animate-pulse' : 'bg-red-400'
+            }`}
+          />
+        )}
         {displayTag}
       </button>
     );
@@ -2536,6 +2670,213 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                   </button>
                 )}
               </div>
+
+              {/* Port Numbering & Order Configuration */}
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Orden de Numeración de Puertos</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-cyan-300">
+                    {selectedDevice.ports.length} puertos
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleReorderDevicePorts(
+                        selectedDevice.id,
+                        'vertical-odd-even'
+                      )
+                    }
+                    className={`py-1.5 px-2 rounded font-mono text-[10px] font-bold border transition-colors cursor-pointer ${
+                      (selectedDevice.portNumberingOrder || 'vertical-odd-even') ===
+                      'vertical-odd-even'
+                        ? 'bg-blue-600 text-white border-blue-400 shadow'
+                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-blue-500'
+                    }`}
+                    title="1 Arriba / 2 Abajo (Estándar Cisco/Switch)"
+                  >
+                    1 Arriba / 2 Abajo
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleReorderDevicePorts(selectedDevice.id, 'sequential')
+                    }
+                    className={`py-1.5 px-2 rounded font-mono text-[10px] font-bold border transition-colors cursor-pointer ${
+                      selectedDevice.portNumberingOrder === 'sequential'
+                        ? 'bg-blue-600 text-white border-blue-400 shadow'
+                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-blue-500'
+                    }`}
+                    title="1, 2, 3... Seguido en Fila (Horizontal)"
+                  >
+                    Secuencial por Fila
+                  </button>
+                </div>
+              </div>
+
+              {/* External / Remote Cable Management for Ports */}
+              {(() => {
+                const currentPort =
+                  selectedDevice.ports.find((p) => p.id === selectedPortId) ||
+                  selectedDevice.ports[0];
+                if (!currentPort) return null;
+
+                const isExt = Boolean(currentPort.externalOccupied);
+                const isOp = currentPort.externalStatus !== 'inoperativo';
+
+                const updateCurrentPort = (updater: (p: DevicePort) => DevicePort) => {
+                  onUpdateRack({
+                    ...rack,
+                    devices: rack.devices.map((d) =>
+                      d.id === selectedDevice.id
+                        ? {
+                            ...d,
+                            ports: d.ports.map((p) =>
+                              p.id === currentPort.id ? updater(p) : p
+                            )
+                          }
+                        : d
+                    )
+                  });
+                };
+
+                return (
+                  <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-slate-200 flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Cable Exterior / Desconocido</span>
+                      </span>
+                      <select
+                        value={currentPort.id}
+                        onChange={(e) => setSelectedPortId(e.target.value)}
+                        className="px-2 py-0.5 bg-slate-950 border border-slate-700 rounded text-[10px] font-mono text-cyan-300 max-w-[130px]"
+                      >
+                        {selectedDevice.ports.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            #{p.number} {p.label}
+                            {p.externalOccupied ? ' [EXT]' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <label className="flex items-center gap-2 p-2 rounded bg-slate-950 border border-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isExt}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          updateCurrentPort((p) => ({
+                            ...p,
+                            externalOccupied: checked,
+                            externalStatus: p.externalStatus || 'operativo',
+                            externalOrigin:
+                              p.externalOrigin || 'Lugar desconocido / Enlace exterior'
+                          }));
+                        }}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-500"
+                      />
+                      <span className="text-[11px] text-white font-medium">
+                        Marcar [{currentPort.label} #{currentPort.number}] ocupado por cable exterior
+                      </span>
+                    </label>
+
+                    {isExt && (
+                      <div className="space-y-2 pt-1 border-t border-slate-800/80">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">
+                            Estado Operativo del Cable:
+                          </label>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCurrentPort((p) => ({
+                                  ...p,
+                                  externalStatus: 'operativo'
+                                }))
+                              }
+                              className={`py-1 px-2 rounded font-mono font-bold text-[11px] flex items-center justify-center gap-1.5 border cursor-pointer transition-colors ${
+                                isOp
+                                  ? 'bg-emerald-950 border-emerald-400 text-emerald-200 ring-1 ring-emerald-500'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                              <span>OPERATIVO (UP)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateCurrentPort((p) => ({
+                                  ...p,
+                                  externalStatus: 'inoperativo'
+                                }))
+                              }
+                              className={`py-1 px-2 rounded font-mono font-bold text-[11px] flex items-center justify-center gap-1.5 border cursor-pointer transition-colors ${
+                                !isOp
+                                  ? 'bg-red-950 border-red-400 text-red-200 ring-1 ring-red-500'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <span className="w-2 h-2 rounded-full bg-red-400" />
+                              <span>INOPERATIVO (DOWN)</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">
+                            Lugar / Origen de donde viene el cable:
+                          </label>
+                          <input
+                            type="text"
+                            value={currentPort.externalOrigin || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              updateCurrentPort((p) => ({
+                                ...p,
+                                externalOrigin: val
+                              }));
+                            }}
+                            placeholder="Ej. Acometida Fibra ISP, Llega de Planta 2, Desconocido..."
+                            className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                          />
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {[
+                              'Acometida Fibra ISP (WAN)',
+                              'Origen desconocido',
+                              'Llega de otra planta',
+                              'Roseta despacho'
+                            ].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() =>
+                                  updateCurrentPort((p) => ({
+                                    ...p,
+                                    externalOrigin: preset
+                                  }))
+                                }
+                                className="text-[9px] px-1.5 py-0.5 rounded bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                              >
+                                + {preset}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <p className="text-xs text-slate-400 py-4 text-center">
@@ -2874,9 +3215,45 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                       LIENZO GRÁFICO INTERACTIVO — Pinche y mueva cualquier puerto con el cursor donde quiera:
                     </span>
                   </span>
-                  <span className="font-mono text-[10px] text-slate-400">
-                    {customPreviewPorts.length} puertos activos
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const validBlocks = customPortBlocks.filter((b) => b.count > 0);
+                        const { ports: rawPorts, portsPerRow } = createDeviceFromPortBlocks(
+                          'preview-dev',
+                          validBlocks.length > 0 ? validBlocks : [],
+                          customDevNumbering
+                        );
+                        const mockDev: RackDevice = {
+                          id: 'preview-dev',
+                          templateId: 'preview',
+                          name: customDevName,
+                          model: customDevBrand,
+                          category: customDevCategory,
+                          uStart: customDevUStart,
+                          uSize: customDevUSize,
+                          ipAddress: customDevIp,
+                          managementVlan: 'VLAN 10',
+                          serialNumber: 'SN-PREV',
+                          powerWatts: customDevWatts,
+                          status: 'nominal',
+                          notes: '',
+                          portsPerRow,
+                          portNumberingOrder: customDevNumbering,
+                          ports: rawPorts
+                        };
+                        setCustomPreviewPorts(ensureDevicePortCoordinates(mockDev));
+                      }}
+                      className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-mono text-[10px] cursor-pointer"
+                      title="Restablecer cuadrícula limpia según el orden seleccionado"
+                    >
+                      ⚡ Re-alinear Orden Limpio
+                    </button>
+                    <span className="font-mono text-[10px] text-slate-400">
+                      {customPreviewPorts.length} puertos activos
+                    </span>
+                  </div>
                 </div>
 
                 {/* Simulated 19" Rack Chassis Faceplate */}
@@ -3336,8 +3713,9 @@ export const RackWorkspace: React.FC<RackWorkspaceProps> = ({
                     }
                     className="w-full px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white"
                   >
-                    <option value="vertical-odd-even">1 Arriba / 2 Abajo</option>
-                    <option value="sequential">Secuencial Fila</option>
+                    <option value="vertical-odd-even">1 Arriba / 2 Abajo (Alterno Switch Cisco)</option>
+                    <option value="sequential">Secuencial por Fila (1, 2, 3...)</option>
+                    <option value="vertical-even-odd">2 Arriba / 1 Abajo (Invertido)</option>
                   </select>
                 </div>
               </div>

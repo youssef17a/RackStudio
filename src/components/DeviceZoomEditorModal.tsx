@@ -13,7 +13,11 @@ import {
   Layers,
   ArrowUpDown,
   Sliders,
-  Tag
+  Tag,
+  Globe,
+  CheckCircle2,
+  Activity,
+  Unplug
 } from 'lucide-react';
 import {
   RackUnit,
@@ -270,40 +274,63 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
 
   const handleAutoAlignPorts = (
     order?: PortNumberingOrder,
-    perRowCount?: number
+    perRowCount?: number,
+    renumberLabels?: boolean
   ) => {
     updateDeviceInRack((dev) => {
+      const targetOrder = order ?? dev.portNumberingOrder ?? 'vertical-odd-even';
       const targetPerRow =
         perRowCount ||
         (dev.portsPerRow && dev.portsPerRow[0]) ||
         Math.min(12, dev.ports.length);
 
-      let newRowsDistribution = dev.portsPerRow;
-      if (perRowCount) {
-        const total = dev.ports.length;
-        const chunks: number[] = [];
-        let rem = total;
-        while (rem > 0) {
-          const take = Math.min(targetPerRow, rem);
-          chunks.push(take);
-          rem -= take;
-        }
-        newRowsDistribution = chunks;
+      const total = dev.ports.length;
+      const chunks: number[] = [];
+      let rem = total;
+      while (rem > 0) {
+        const take = Math.min(targetPerRow, rem);
+        chunks.push(take);
+        rem -= take;
       }
 
-      // Clear manual xPercent/yPercent so ensureDevicePortCoordinates recalculates clean rows
-      const strippedPorts = dev.ports.map((p) => ({
-        ...p,
-        xPercent: undefined,
-        yPercent: undefined
-      }));
+      // Re-assign port rows according to targetOrder
+      const sortedPorts = [...dev.ports].sort((a, b) => a.number - b.number);
+      const remappedPorts = sortedPorts.map((p, idx) => {
+        let rowNum = 1;
+        if (chunks.length >= 2) {
+          if (targetOrder === 'vertical-odd-even') {
+            // Odd 1, 3, 5... top row; Even 2, 4, 6... bottom row
+            rowNum = idx % 2 === 0 ? 1 : 2;
+          } else if (targetOrder === 'vertical-even-odd') {
+            rowNum = idx % 2 === 0 ? 2 : 1;
+          } else {
+            // Sequential: top row 1..targetPerRow; bottom row targetPerRow+1..
+            rowNum = idx < targetPerRow ? 1 : 2;
+          }
+        }
+
+        let label = p.label;
+        if (renumberLabels) {
+          const prefixMatch = p.label.match(/^[A-Za-z_-]+/);
+          const prefix = prefixMatch ? prefixMatch[0] : 'P';
+          label = `${prefix}${(idx + 1).toString().padStart(2, '0')}`;
+        }
+
+        return {
+          ...p,
+          number: idx + 1,
+          row: rowNum,
+          label,
+          xPercent: undefined,
+          yPercent: undefined
+        };
+      });
 
       const tempDev: RackDevice = {
         ...dev,
-        portNumberingOrder:
-          order ?? dev.portNumberingOrder ?? 'sequential',
-        portsPerRow: newRowsDistribution,
-        ports: strippedPorts
+        portNumberingOrder: targetOrder,
+        portsPerRow: chunks,
+        ports: remappedPorts
       };
 
       return {
@@ -311,8 +338,17 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
         ports: ensureDevicePortCoordinates(tempDev)
       };
     });
+
+    const orderName =
+      (order ?? device.portNumberingOrder) === 'vertical-odd-even'
+        ? '1 Arriba / 2 Abajo'
+        : (order ?? device.portNumberingOrder) === 'vertical-even-odd'
+        ? '2 Arriba / 1 Abajo'
+        : 'Secuencial por Filas';
     setStatusMessage(
-      'Puertos alineados automáticamente en formación limpia de chasis.'
+      `Puertos alineados en ${orderName} (${perRowCount || currentPerRow} por fila)${
+        renumberLabels ? ' con renumeración de etiquetas' : ''
+      }.`
     );
   };
 
@@ -606,6 +642,9 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                       ? 'bg-rose-950/95 border-rose-400 text-rose-200'
                       : 'bg-slate-900/95 border-slate-500 text-slate-100';
 
+                  const isExternal = Boolean(port.externalOccupied);
+                  const isExternalOp = port.externalStatus !== 'inoperativo';
+
                   return (
                     <div
                       key={port.id}
@@ -632,16 +671,30 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                           ? '#FBBF24'
                           : cableHex
                           ? '#FFFFFF'
+                          : isExternal
+                          ? isExternalOp
+                            ? '#10B981'
+                            : '#EF4444'
                           : undefined
                       }}
                       title={`#${port.number} · ${port.label} (${
                         PORT_TYPE_META[port.type]?.label || port.type
-                      }) — Arrastrar para mover / Clic para renombrar`}
+                      })${
+                        isExternal
+                          ? ` [ENLACE EXTERNO: ${port.externalOrigin || 'Desconocido'} - ${
+                              isExternalOp ? 'OPERATIVO (UP)' : 'INOPERATIVO (DOWN)'
+                            }]`
+                          : ''
+                      } — Arrastrar para mover / Clic para editar`}
                       className={`px-2 py-1 rounded-md border-2 font-mono flex flex-col items-center justify-center min-w-[44px] cursor-grab active:cursor-grabbing transition-shadow ${
                         isSelected
                           ? 'ring-4 ring-amber-400/80 z-40 shadow-2xl scale-110'
                           : isDragging
                           ? 'z-40 scale-110 shadow-2xl'
+                          : isExternal
+                          ? isExternalOp
+                            ? 'ring-2 ring-emerald-500/70 z-30 shadow-lg'
+                            : 'ring-2 ring-red-500/80 z-30 shadow-lg'
                           : 'z-20 hover:scale-105 shadow-md'
                       } ${cableHex ? 'text-white' : typeColors}`}
                     >
@@ -650,15 +703,34 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                         <span className="text-[8px] opacity-80 uppercase">
                           {PORT_TYPE_META[port.type]?.shortTag || port.type}
                         </span>
+                        {isExternal && (
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                              isExternalOp
+                                ? 'bg-emerald-400 animate-pulse'
+                                : 'bg-red-400'
+                            }`}
+                          />
+                        )}
                       </div>
                       <div className="text-[10px] font-bold truncate max-w-[78px] leading-tight mt-0.5">
                         {port.label}
                       </div>
-                      {connInfo && (
+                      {connInfo ? (
                         <div className="text-[8px] bg-black/45 px-1 rounded mt-0.5 truncate max-w-[78px]">
                           → {connInfo.remoteDev?.name}
                         </div>
-                      )}
+                      ) : isExternal ? (
+                        <div
+                          className={`text-[8px] px-1 rounded mt-0.5 truncate max-w-[82px] font-bold ${
+                            isExternalOp
+                              ? 'bg-emerald-950/90 text-emerald-300'
+                              : 'bg-red-950/90 text-red-300'
+                          }`}
+                        >
+                          {isExternalOp ? '● EXT OP' : '✕ EXT CAÍDO'}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -863,6 +935,178 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                     );
                   })()}
 
+                  {/* External or Unknown Source Cable Link Configuration */}
+                  <div className="p-3 rounded-lg bg-slate-950/90 border border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-slate-200 font-bold flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedPort.externalOccupied)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            updateDeviceInRack((dev) => ({
+                              ...dev,
+                              ports: dev.ports.map((p) =>
+                                p.id === selectedPort.id
+                                  ? {
+                                      ...p,
+                                      externalOccupied: checked,
+                                      externalStatus: p.externalStatus || 'operativo',
+                                      externalOrigin:
+                                        p.externalOrigin || 'Lugar desconocido / Enlace exterior'
+                                    }
+                                  : p
+                              )
+                            }));
+                          }}
+                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer accent-blue-500"
+                        />
+                        <Globe className="w-4 h-4 text-cyan-400" />
+                        <span>Cable Externo / Origen Desconocido</span>
+                      </label>
+                      {selectedPort.externalOccupied && (
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                            selectedPort.externalStatus === 'inoperativo'
+                              ? 'bg-red-950 text-red-300 border border-red-500/50'
+                              : 'bg-emerald-950 text-emerald-300 border border-emerald-500/50'
+                          }`}
+                        >
+                          {selectedPort.externalStatus === 'inoperativo'
+                            ? 'INOPERATIVO'
+                            : 'OPERATIVO'}
+                        </span>
+                      )}
+                    </div>
+
+                    {selectedPort.externalOccupied && (
+                      <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
+                        <div>
+                          <label className="block text-[11px] text-slate-400 mb-1">
+                            Estado Operativo del Puerto:
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateDeviceInRack((dev) => ({
+                                  ...dev,
+                                  ports: dev.ports.map((p) =>
+                                    p.id === selectedPort.id
+                                      ? { ...p, externalStatus: 'operativo' }
+                                      : p
+                                  )
+                                }));
+                              }}
+                              className={`py-1.5 px-2 rounded-lg font-mono font-bold text-xs flex items-center justify-center gap-1.5 border cursor-pointer transition-colors ${
+                                (selectedPort.externalStatus || 'operativo') === 'operativo'
+                                  ? 'bg-emerald-950 border-emerald-400 text-emerald-200 ring-2 ring-emerald-500/40'
+                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                              <span>OPERATIVO (UP)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateDeviceInRack((dev) => ({
+                                  ...dev,
+                                  ports: dev.ports.map((p) =>
+                                    p.id === selectedPort.id
+                                      ? { ...p, externalStatus: 'inoperativo' }
+                                      : p
+                                  )
+                                }));
+                              }}
+                              className={`py-1.5 px-2 rounded-lg font-mono font-bold text-xs flex items-center justify-center gap-1.5 border cursor-pointer transition-colors ${
+                                selectedPort.externalStatus === 'inoperativo'
+                                  ? 'bg-red-950 border-red-400 text-red-200 ring-2 ring-red-500/40'
+                                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                              <span>INOPERATIVO (DOWN)</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] text-slate-400 mb-1">
+                            Lugar / Sitio de donde viene el cable:
+                          </label>
+                          <input
+                            type="text"
+                            value={selectedPort.externalOrigin || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              updateDeviceInRack((dev) => ({
+                                ...dev,
+                                ports: dev.ports.map((p) =>
+                                  p.id === selectedPort.id
+                                    ? { ...p, externalOrigin: val }
+                                    : p
+                                )
+                              }));
+                            }}
+                            placeholder="Ej. Acometida Fibra ISP, Llega de Planta 2, Desconocido..."
+                            className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                          />
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {[
+                              'Acometida Fibra ISP (WAN)',
+                              'Procedencia Desconocida',
+                              'Llega de Otra Planta / Sala',
+                              'Roseta / Toma Despacho'
+                            ].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => {
+                                  updateDeviceInRack((dev) => ({
+                                    ...dev,
+                                    ports: dev.ports.map((p) =>
+                                      p.id === selectedPort.id
+                                        ? { ...p, externalOrigin: preset }
+                                        : p
+                                    )
+                                  }));
+                                }}
+                                className="text-[9px] px-1.5 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
+                              >
+                                + {preset}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] text-slate-400 mb-1">
+                            Notas del Enlace Externo:
+                          </label>
+                          <input
+                            type="text"
+                            value={selectedPort.externalNotes || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              updateDeviceInRack((dev) => ({
+                                ...dev,
+                                ports: dev.ports.map((p) =>
+                                  p.id === selectedPort.id
+                                    ? { ...p, externalNotes: val }
+                                    : p
+                                )
+                              }));
+                            }}
+                            placeholder="Ej. Latiguillo directo desde roseta pared"
+                            className="w-full px-2.5 py-1 bg-slate-900 border border-slate-700 rounded text-[11px] text-slate-300 focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Delete Port Button */}
                   <button
                     type="button"
@@ -1046,7 +1290,22 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleAutoAlignPorts('vertical-odd-even')}
+                    className={`p-2 rounded border text-left font-mono text-[10px] cursor-pointer ${
+                      device.portNumberingOrder === 'vertical-odd-even'
+                        ? 'bg-cyan-600/25 border-cyan-400 text-white font-bold'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <div>1 Arriba / 2 Abajo</div>
+                    <div className="text-[9px] text-slate-400">
+                      Par/Impar Switch
+                    </div>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => handleAutoAlignPorts('sequential')}
@@ -1057,31 +1316,40 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
                     }`}
                   >
-                    <div>Horizontal (1, 2, 3...)</div>
+                    <div>Secuencial Fila</div>
                     <div className="text-[9px] text-slate-400">
-                      Seguido en la misma fila
+                      1..N / N+1..2N
                     </div>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => handleAutoAlignPorts('vertical-odd-even')}
+                    onClick={() => handleAutoAlignPorts('vertical-even-odd')}
                     className={`p-2 rounded border text-left font-mono text-[10px] cursor-pointer ${
-                      device.portNumberingOrder === 'vertical-odd-even'
-                        ? 'bg-cyan-600/25 border-cyan-400 text-white font-bold'
+                      device.portNumberingOrder === 'vertical-even-odd'
+                        ? 'bg-amber-600/25 border-amber-400 text-white font-bold'
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
                     }`}
                   >
-                    <div>Vertical (1 Arriba / 2 Abajo)</div>
+                    <div>2 Arriba / 1 Abajo</div>
                     <div className="text-[9px] text-slate-400">
-                      Par/Impar estilo Switch
+                      Invertido
                     </div>
                   </button>
                 </div>
 
-                <div>
-                  <span className="block text-[10px] font-mono text-slate-400 mb-1">
-                    Puertos por fila al auto-ordenar:
-                  </span>
+                <div className="pt-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+                    <span>Puertos por fila al auto-ordenar:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleAutoAlignPorts(undefined, undefined, true)}
+                      className="text-amber-400 hover:text-amber-300 underline cursor-pointer"
+                      title="Reasigna números y etiquetas (ej. GE01, GE02...) según el orden de las bocas"
+                    >
+                      Renumerar etiquetas
+                    </button>
+                  </div>
                   <div className="grid grid-cols-6 gap-1">
                     {[4, 8, 12, 16, 24, 48].map((n) => (
                       <button
@@ -1149,6 +1417,8 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                 {positionedPorts.map((pt) => {
                   const isSel = selectedPort?.id === pt.id;
                   const conn = getPortCableInfo(pt.id);
+                  const isExt = Boolean(pt.externalOccupied);
+                  const isExtOp = pt.externalStatus !== 'inoperativo';
                   return (
                     <div
                       key={`bulk-pt-${pt.id}`}
@@ -1200,6 +1470,17 @@ export const DeviceZoomEditorModal: React.FC<DeviceZoomEditorModalProps> = ({
                           title={`Conectado a ${conn.remoteDev?.name} (${conn.remotePort?.label})`}
                         >
                           CON
+                        </span>
+                      ) : isExt ? (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${
+                            isExtOp
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/50'
+                              : 'bg-red-950 text-red-300 border border-red-500/50'
+                          }`}
+                          title={`Enlace externo: ${pt.externalOrigin || 'Desconocido'} [${isExtOp ? 'UP' : 'DOWN'}]`}
+                        >
+                          {isExtOp ? 'EXT OP' : 'EXT CAÍDO'}
                         </span>
                       ) : (
                         <span className="px-1.5 py-0.5 rounded bg-slate-900 text-slate-500 text-[9px] font-mono shrink-0">

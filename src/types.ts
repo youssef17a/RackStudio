@@ -81,6 +81,11 @@ export interface DevicePort {
   groupId?: string; // Optional block/group identifier for visual separation between port banks
   vlan?: string;
   speed?: string;
+  // External or unknown origin connection (cable from another room/site or unknown location)
+  externalOccupied?: boolean;
+  externalStatus?: 'operativo' | 'inoperativo';
+  externalOrigin?: string; // e.g. "Acometida exterior Fibra ISP", "Origen desconocido", "Llega de Planta 2"
+  externalNotes?: string;
 }
 
 export interface CustomPortBlockSpec {

@@ -67,8 +67,12 @@ export interface PortConnectionLookup {
   category: string;
   vlan: string;
   lengthMeters: number;
-  remoteDevice: RackDevice;
-  remotePort: DevicePort;
+  remoteDevice?: RackDevice;
+  remotePort?: DevicePort;
+  isExternal?: boolean;
+  externalStatus?: 'operativo' | 'inoperativo';
+  externalOrigin?: string;
+  externalNotes?: string;
 }
 
 export function buildPortConnectionMap(
@@ -105,6 +109,28 @@ export function buildPortConnectionMap(
       remotePort: fromPort
     };
   }
+
+  // Populate ports connected to external sites or unknown locations
+  for (const dev of rack.devices) {
+    for (const port of dev.ports) {
+      if (port.externalOccupied && !map[port.id]) {
+        const isOp = port.externalStatus !== 'inoperativo';
+        map[port.id] = {
+          cableId: `ext-${port.id}`,
+          cableLabel: `EXT-${port.label}`,
+          color: isOp ? 'emerald' : 'red',
+          category: 'Acometida / Enlace Externo',
+          vlan: port.vlan || 'WAN / Troncal',
+          lengthMeters: 0,
+          isExternal: true,
+          externalStatus: port.externalStatus || 'operativo',
+          externalOrigin: port.externalOrigin || 'Lugar desconocido / Enlace externo',
+          externalNotes: port.externalNotes || ''
+        };
+      }
+    }
+  }
+
   return map;
 }
 
@@ -388,31 +414,57 @@ export function exportRackToTechnicalPDF(
             curY + 1.9
           );
 
-          // Destination Target Line 1: Remote Device
-          doc.setTextColor(15, 23, 42);
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(isA3 ? 5.8 : 4.8);
-          doc.text(
-            `-> [U${conn.remoteDevice.uStart}] ${conn.remoteDevice.name}`.substring(
-              0,
-              25
-            ),
-            cx + 1.2,
-            curY + (isA3 ? 5.2 : 4.6)
-          );
+          // Destination Target Lines
+          if (conn.isExternal) {
+            const isOp = conn.externalStatus !== 'inoperativo';
+            doc.setTextColor(isOp ? 5 : 185, isOp ? 120 : 28, isOp ? 50 : 28);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(isA3 ? 5.8 : 4.8);
+            doc.text(
+              `[EXTERNO] ${isOp ? 'OPERATIVO (UP)' : 'INOPERATIVO (DOWN)'}`.substring(
+                0,
+                26
+              ),
+              cx + 1.2,
+              curY + (isA3 ? 5.2 : 4.6)
+            );
 
-          // Destination Target Line 2: Remote Port + VLAN
-          doc.setTextColor(51, 65, 85);
-          doc.setFont('courier', 'normal');
-          doc.setFontSize(isA3 ? 5.3 : 4.4);
-          doc.text(
-            `Pto: ${conn.remotePort.label} (#${conn.remotePort.number}) · ${conn.vlan}`.substring(
-              0,
-              27
-            ),
-            cx + 1.2,
-            curY + (isA3 ? 8.1 : 6.9)
-          );
+            doc.setTextColor(51, 65, 85);
+            doc.setFont('courier', 'normal');
+            doc.setFontSize(isA3 ? 5.3 : 4.4);
+            doc.text(
+              `Origen: ${conn.externalOrigin || 'Desconocido'}`.substring(
+                0,
+                27
+              ),
+              cx + 1.2,
+              curY + (isA3 ? 8.1 : 6.9)
+            );
+          } else if (conn.remoteDevice && conn.remotePort) {
+            doc.setTextColor(15, 23, 42);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(isA3 ? 5.8 : 4.8);
+            doc.text(
+              `-> [U${conn.remoteDevice.uStart}] ${conn.remoteDevice.name}`.substring(
+                0,
+                25
+              ),
+              cx + 1.2,
+              curY + (isA3 ? 5.2 : 4.6)
+            );
+
+            doc.setTextColor(51, 65, 85);
+            doc.setFont('courier', 'normal');
+            doc.setFontSize(isA3 ? 5.3 : 4.4);
+            doc.text(
+              `Pto: ${conn.remotePort.label} (#${conn.remotePort.number}) · ${conn.vlan}`.substring(
+                0,
+                27
+              ),
+              cx + 1.2,
+              curY + (isA3 ? 8.1 : 6.9)
+            );
+          }
         } else {
           // Free port cell
           doc.setFillColor(255, 255, 255);
